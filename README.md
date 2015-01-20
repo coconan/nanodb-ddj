@@ -22,4 +22,4 @@ origin	https://github.com/dkong1796/nanodb-ddj.git (fetch)
 origin	https://github.com/dkong1796/nanodb-ddj.git (push)
 ```
 
-This way, running the usual commands (like `git push origin master` updates the Github repository, and when we want to submit, one of us should run `git push cms master`.
+This way, running the usual commands (like `git push origin master`) updates the Github repository, and when we want to submit, one of us should run `git push cms master`.
