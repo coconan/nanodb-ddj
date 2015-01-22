@@ -597,7 +597,22 @@ public class DataPage {
                 " slots, but slot " + slot + " was requested for deletion.");
         }
 
-        // TODO:  Complete this implementation.
-        throw new UnsupportedOperationException("TODO:  Implement!");
+        // Delete the tuple data from the offset in the specified slot
+        int offset = getSlotValue(dbPage, slot);
+        int length = getTupleLength(dbPage, slot);
+        deleteTupleDataRange(dbPage, offset, length);
+
+        // Change that slot's value to EMPTY_SLOT
+        setSlotValue(dbPage, slot, EMPTY_SLOT);
+        // Count the number of empty slots starting from the end and remove
+        // that many slots.
+        int remove = 0;
+        for (int i = numSlots - 1; i>= 0; i--) {
+            if (getSlotValue(dbPage, i) == EMPTY_SLOT) {
+                remove ++;
+            }
+            break;
+        }
+        setNumSlots(dbPage, numSlots - remove);
     }
 }
