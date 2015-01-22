@@ -16,3 +16,7 @@ hs_err_pid*
 build/
 datafiles/
 test_datafiles/
+
+# IntelliJ IDEA things
+*.iml
+.idea/
