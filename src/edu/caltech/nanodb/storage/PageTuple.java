@@ -487,29 +487,21 @@ public abstract class PageTuple implements Tuple {
      * @param iCol the index of the column to set to <tt>NULL</tt>
      */
     private void setNullColumnValue(int iCol) {
-        /* TODO:  Implement!
-         *
-         * The column's flag in the tuple's null-bitmap must be set to true.
-         * Also, the data occupied by the column's value must be removed.
-         * There are many helpful methods that can be used for this method:
-         *  - isNullValue() and setNullFlag() to check/change the null-bitmap
-         *  - deleteTupleDataRange() to remove part of a tuple's data
-         *
-         * You will have to examine the column's type as well; you can use
-         * the schema.getColumnInfo(iCol) method to determine the column's
-         * type; schema.getColumnInfo(iCol).getType() to get the basic SQL
-         * data type.  If the column is a variable-size column (e.g. VARCHAR)
-         * then you may need to retrieve details from the column itself using
-         * the dbPage member, and the getStorageSize() field.
-         *
-         * Finally, the valueOffsets array is extremely important, because it
-         * contains the starting offset of every non-NULL column's data in the
-         * tuple.  Setting a column's value to NULL will obviously affect at
-         * least some of the value-offsets.  Make sure to update this array
-         * properly as well.  (Note that columns whose value is NULL will have
-         * the special NULL_OFFSET constant as their offset in the tuple.)
-         */
-        throw new UnsupportedOperationException("TODO:  Implement!");
+        // We're done if the value is already NULL
+        if (isNullValue(iCol)) {
+            return;
+        }
+        // Otherwise, set the null flag on the column
+        setNullFlag(iCol, true);
+        int offset = valueOffsets[iCol];
+        int length = getColumnValueSize(schema.getColumnInfo(iCol).getType(),
+                offset);
+        // Delete the column data
+        deleteTupleDataRange(offset, length);
+        // Update the page offset and compute new value offsets
+        // TODO: Optimize to only compute required values (if necessary)
+        pageOffset += length;
+        computeValueOffsets();
     }
 
 
@@ -537,16 +529,16 @@ public abstract class PageTuple implements Tuple {
          * the size of the new column-value, so that the right amount of space
          * can be made available for the new value.  If the column is a fixed-
          * size type (e.g. an INTEGER) then this is easy, but if the column is
-         * a variable-size type (e.g. VARCHAR) then this will be more
-         * involved.  As before, retrieving the column's type will be important
-         * in implementing the method:  schema.getColumnInfo(iCol), and then
-         * schema.getColumnInfo(iCol).getType() to get the basic type info.
-         * You can use the getColumnValueSize() method to determine the size
+         * a variable-size type ColumnValueSize() method to determine the size
          * of a value as well.
          *
          * As before, the valueOffsets array is extremely important to use and
          * modify correctly, so take care in how you manage it.
-         *
+         *(e.g. VARCHAR) then this will be more
+         * involved.  As before, retrieving the column's type will be important
+         * in implementing the method:  schema.getColumnInfo(iCol), and then
+         * schema.getColumnInfo(iCol).getType() to get the basic type info.
+         * You can use the get
          * The tuple's data in the page starts at the offset returned by the
          * getDataStartOffset() method; this is the offset past the tuple's
          * null-bitmask.
