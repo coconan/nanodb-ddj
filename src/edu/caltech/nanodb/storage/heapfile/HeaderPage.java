@@ -23,6 +23,8 @@ import edu.caltech.nanodb.storage.DBPage;
  *   <li>After this come several values specifying the sizes of various areas in
  *       the header page, including the size of the table's schema specification,
  *       the statistics for the table, and the number of columns.</li>
+ *   <li>Then there is a page number that points to the first page in a
+ *       linked list of pages that are not full.</li>
  *   <li>Next the table's schema is recorded in the header page.  See the
  *       {@link edu.caltech.nanodb.storage.SchemaWriter} class for details on
  *       how a table's schema is stored.</li>
@@ -63,10 +65,17 @@ public class HeaderPage {
 
 
     /**
+     * The offset in the header page where the page number of the head of
+     * the list of non-full pages is stored.
+     */
+    public static final int OFFSET_FIRST_NON_FULL_PAGE = 6;
+
+
+    /**
      * The offset in the header page where the table schema starts.  This
      * value is an unsigned short.
      */
-    public static final int OFFSET_SCHEMA_START = 6;
+    public static final int OFFSET_SCHEMA_START = 10;
 
 
     /**
@@ -148,7 +157,7 @@ public class HeaderPage {
 
         if (numBytes < 0) {
             throw new IllegalArgumentException(
-                "numButes must be >= 0; got " + numBytes);
+                "numBytes must be >= 0; got " + numBytes);
         }
 
         dbPage.writeShort(OFFSET_STATS_SIZE, numBytes);
@@ -167,5 +176,30 @@ public class HeaderPage {
     public static int getStatsOffset(DBPage dbPage) {
         verifyIsHeaderPage(dbPage);
         return OFFSET_SCHEMA_START + getSchemaSize(dbPage);
+    }
+
+
+    /**
+     * Returns the page number of the head of the list of non-full pages.
+     */
+    public static int getFirstNonFullPage(DBPage dbPage) {
+        verifyIsHeaderPage(dbPage);
+        return dbPage.readInt(OFFSET_FIRST_NON_FULL_PAGE);
+    }
+
+
+    /**
+     * Sets the page number of the head of the list of non-full pages.
+     */
+    public static void setFirstNonFullPage(DBPage dbPage, int page) {
+        verifyIsHeaderPage(dbPage);
+
+        if (page < 0) {
+            throw new IllegalArgumentException(
+                    "Page number cannot be negative."
+            );
+        }
+
+        dbPage.writeInt(OFFSET_FIRST_NON_FULL_PAGE, page);
     }
 }

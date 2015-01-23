@@ -24,6 +24,11 @@ import edu.caltech.nanodb.storage.StorageManager;
 
 /**
  * This class implements the TupleFile interface for heap files.
+ *
+ * We keep track of pages that are partially filled (have space for additional
+ * tuples) by maintaining a singly linked list of such data pages. Each page
+ * has a pointer (the page number) to the next page in the list. The end of
+ * the list is indicated by having a pointer to 0 (the header page).
  */
 public class HeapTupleFile implements TupleFile {
 
@@ -46,12 +51,17 @@ public class HeapTupleFile implements TupleFile {
     private TableStats stats;
 
 
+    /** Page number of head of non-full page list. */
+    private int firstNonFullPage;
+
+
     /** The file that stores the tuples. */
     private DBFile dbFile;
 
 
     public HeapTupleFile(StorageManager storageManager, DBFile dbFile,
-                         TableSchema schema, TableStats stats) {
+                         TableSchema schema, TableStats stats,
+                         int firstNonFullPage) {
         if (storageManager == null)
             throw new IllegalArgumentException("storageManager cannot be null");
 
@@ -68,6 +78,7 @@ public class HeapTupleFile implements TupleFile {
         this.dbFile = dbFile;
         this.schema = schema;
         this.stats = stats;
+        this.firstNonFullPage = firstNonFullPage;
     }
 
 
@@ -278,22 +289,15 @@ public class HeapTupleFile implements TupleFile {
                 " is larger than page size " + dbFile.getPageSize() + ".");
         }
 
-        // Search for a page to put the tuple in.  If we hit the end of the
-        // data file, create a new page.
-        int pageNo = 1;
+        // Search for a page to put the tuple in. If we hit the end of the
+        // list of partially filled pages (pageNo will be 0), then create a
+        // new page.
+        int pageNo = firstNonFullPage;
         DBPage dbPage = null;
-        while (true) {
-            // Try to load the page without creating a new one.
-            try {
-                dbPage = storageManager.loadDBPage(dbFile, pageNo);
-            }
-            catch (EOFException eofe) {
-                // Couldn't load the current page, because it doesn't exist.
-                // Break out of the loop.
-                logger.debug("Reached end of data file without finding " +
-                             "space for new tuple.");
-                break;
-            }
+        // Keep track of the previous page so we can maintain the list.
+        DBPage prevPage = null;
+        while (pageNo > 0) {
+            dbPage = storageManager.loadDBPage(dbFile, pageNo);
 
             int freeSpace = DataPage.getFreeSpaceInPage(dbPage);
 
@@ -310,18 +314,27 @@ public class HeapTupleFile implements TupleFile {
 
             // If we reached this point then the page doesn't have enough
             // space, so go on to the next data page.
-            dbPage.unpin();
+            if (prevPage != null) {
+                prevPage.unpin();
+            }
+            prevPage = dbPage;
+            pageNo = DataPage.getNextNonFullPage(dbPage);
             dbPage = null;
-            pageNo++;
         }
 
         if (dbPage == null) {
-            // Try to create a new page at the end of the file.  In this
-            // circumstance, pageNo is *just past* the last page in the data
-            // file.
+            // Get the page number of the next allocated page.
+            pageNo = dbFile.getNumPages();
             logger.debug("Creating new page " + pageNo + " to store new tuple.");
             dbPage = storageManager.loadDBPage(dbFile, pageNo, true);
             DataPage.initNewPage(dbPage);
+
+            // Add new page to the list of non-full pages.
+            if (prevPage == null) {
+                firstNonFullPage = pageNo;
+            } else {
+                DataPage.setNextNonFullPage(prevPage, pageNo);
+            }
         }
 
         int slot = DataPage.allocNewTuple(dbPage, tupSize);
@@ -332,6 +345,31 @@ public class HeapTupleFile implements TupleFile {
 
         HeapFilePageTuple pageTup =
             HeapFilePageTuple.storeNewTuple(schema, dbPage, slot, tupOffset, tup);
+
+        // If there is no more space for a new tuple, then remove this page
+        // from the list of non-full pages. For tuples with variable lengths,
+        // it may be possible for a page to fit some tuples but not others.
+        // However, instead of trying to compute an estimated size, we will
+        // simply use this current tuple as a rough estimate of the size
+        // needed. That is, will this tuple fit in the page again or not?
+        if (DataPage.getFreeSpaceInPage(dbPage) < tupSize + 2) {
+            // Remove this from the list of non-full pages.
+            int nextNonFullPage = DataPage.getNextNonFullPage(dbPage);
+            if (prevPage == null) {
+                firstNonFullPage = nextNonFullPage;
+            } else {
+                DataPage.setNextNonFullPage(prevPage, nextNonFullPage);
+            }
+        }
+
+        if (prevPage != null) {
+            prevPage.unpin();
+        }
+
+        // Update values that may have changed.
+        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
+        HeaderPage.setFirstNonFullPage(headerPage, firstNonFullPage);
+        headerPage.unpin();
 
         DataPage.sanityCheck(dbPage);
 
@@ -382,6 +420,13 @@ public class HeapTupleFile implements TupleFile {
 
         DBPage dbPage = ptup.getDBPage();
         DataPage.deleteTuple(dbPage, ptup.getSlot());
+
+        // Add this to the list of non-full pages.
+        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
+        int nextNonFullPage = HeaderPage.getFirstNonFullPage(headerPage);
+        HeaderPage.setFirstNonFullPage(headerPage, dbPage.getPageNo());
+        DataPage.setNextNonFullPage(dbPage, nextNonFullPage);
+        headerPage.unpin();
 
         DataPage.sanityCheck(dbPage);
     }
