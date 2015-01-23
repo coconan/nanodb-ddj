@@ -36,17 +36,20 @@ public class QueryEvaluator {
 
         int rowsProduced = 0;
         try {
-            Tuple tuple;
-            while (true) {
-                // Get the next tuple.  If there aren't anymore, we're done!
+            // This loop has to grab the next tuple before processing the last tuple,
+            // since there is a chance the tuple could get unpinned, making it
+            // impossible to grab the next tuple in certain cases.
+            Tuple tuple = plan.getNextTuple();
+            // Do things until no tuples are left
+            while (tuple != null) {
+
+                Tuple lastTuple = tuple;
                 tuple = plan.getNextTuple();
-                if (tuple == null)
-                    break;
 
                 rowsProduced++;
 
                 // Do whatever we're supposed to do with the tuple.
-                processor.process(tuple);
+                processor.process(lastTuple);
             }
         }
         finally {

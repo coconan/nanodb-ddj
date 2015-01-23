@@ -89,10 +89,15 @@ public abstract class SelectNode extends PlanNode {
         if (done)
             return null;
 
+        boolean unpinTuple = false;
         // Continue to advance the current tuple until it is selected by the
         // predicate.
         do {
+            Tuple lastTuple = currentTuple;
             advanceCurrentTuple();
+
+            // The last tuple did not satisfy the predicate so it can be unpinned
+            if (unpinTuple) lastTuple.unpin();
 
             // If the last tuple in the file (or chain of nodes) did not satisfy the
             // predicate, then the selection process is over, so set the done flag and
@@ -101,8 +106,14 @@ public abstract class SelectNode extends PlanNode {
                 done = true;
                 return null;
             }
+
+            if (isTupleSelected(currentTuple)) {
+                break;
+            } else {
+                unpinTuple = true;
+            }
         }
-        while (!isTupleSelected(currentTuple));
+        while (true);
 
         // The current tuple now satisfies the predicate, so return it.
         return currentTuple;
@@ -128,6 +139,7 @@ public abstract class SelectNode extends PlanNode {
 
         environment.clear();
         environment.addTuple(schema, tuple);
+
         return predicate.evaluatePredicate(environment);
     }
 }
