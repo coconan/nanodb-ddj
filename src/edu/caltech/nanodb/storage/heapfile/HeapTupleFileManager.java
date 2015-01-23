@@ -69,7 +69,15 @@ public class HeapTupleFileManager implements TupleFileManager {
         int statsSize = hpWriter.getPosition() - schemaEndPos;
         HeaderPage.setStatsSize(headerPage, statsSize);
 
-        return new HeapTupleFile(storageManager, dbFile, schema, stats);
+        // Initialize empty list of nonfull pages.
+        int firstNonFullPage = 0;
+        HeaderPage.setFirstNonFullPage(headerPage, firstNonFullPage);
+
+        // We're done with the header page.
+        headerPage.unpin();
+
+        return new HeapTupleFile(storageManager, dbFile, schema, stats,
+                firstNonFullPage);
     }
 
 
@@ -82,6 +90,10 @@ public class HeapTupleFileManager implements TupleFileManager {
         // to write out the schema information.
         DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
         PageReader hpReader = new PageReader(headerPage);
+
+        // Get head of list of non-full pages.
+        int firstNonFullPage = HeaderPage.getFirstNonFullPage(headerPage);
+
         // Skip past the page-size value.
         hpReader.setPosition(HeaderPage.OFFSET_SCHEMA_START);
 
@@ -93,7 +105,9 @@ public class HeapTupleFileManager implements TupleFileManager {
         StatsWriter statsWriter = new StatsWriter();
         TableStats stats = statsWriter.readTableStats(hpReader, schema);
 
-        return new HeapTupleFile(storageManager, dbFile, schema, stats);
+        headerPage.unpin();
+        return new HeapTupleFile(storageManager, dbFile, schema, stats,
+                firstNonFullPage);
     }
 
 

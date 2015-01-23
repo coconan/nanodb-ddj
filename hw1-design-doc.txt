@@ -1,0 +1,157 @@
+CS122 Assignment 1 - NanoDB Set-Up and Storage - Design Document
+================================================================
+
+A:  Logistics
+-------------
+
+A1.  List your team name and the people who worked on this assignment.
+
+    nanodb-ddj
+
+     Daniel Wang
+     Jerry Zhang
+     Daniel Kong
+
+A2.  Specify the tag name and commit-hash of the Git version you are
+     submitting for your assignment.  (You can list the commit hashes
+     of your repository tags with this command:  git show-ref --tags)
+
+     Tag name:     <tag>
+     Commit hash:  <hash>
+
+A3.  Specify any late tokens you are applying to this assignment, or
+     "none" if no late tokens.
+
+A4.  Briefly describe what parts of the assignment each teammate focused on.
+    Daniel Wang: Delete/Update
+    Jerry Zhang: Buffer Manager
+    Daniel Kong: Performance Improvement
+
+B:  Deleting and Updating Tuples
+--------------------------------
+
+B1.  Briefly describe (1-3 sentences) how you reclaim slot entries in
+     the slotted page.  Which slot entries are you able to reclaim?
+
+I reclaim all empty slots at the end of the slot list. I do so by
+iterating from the end of the slot list, adding to a counter for each
+empty slot I see until I reach one that isn't empty. Then, I reduce the
+number of slots by the counter value. Slots in the middle aren't reclaimed
+until they reach the end.
+
+B2.  Briefly outline the steps of what your setNullColumnValue() function
+     does.  You don't have to go into much detail; we can look at your
+     code for the details.  Just describe the basic things the function
+     must do to set a column-value to NULL.
+
+First the function checks if the column is already NULL. If not, it sets
+the null flag, finds the offset and length of the data, and deletes that
+data range. It then updates the page offset and recomputes valueOffsets.
+
+B3.  Similarly, briefly outline the steps of what your
+     setNonNullColumnValue() function does.
+
+The function first checks if the value is NULL. If so, it finds the
+location to write to by iterating backwards through valueOffsets until
+a non-NULL value is found and going to the end of that column. If
+the value isn't NULL, we set the location to the start of the column.
+We then find the difference in length between the old and new values
+and insert/delete that much space. We unset the null flag, write the
+object to the right place, and recompute page/value offsets.
+
+C:  Unpinning Tuples and Pages
+------------------------------
+
+C1.  Briefly describe your strategy for determining when tuples need to
+     be unpinned.  Make sure to comment on plan-nodes and commands.
+
+The query evaluator should unpin tuples after it processes them with some
+given tupleProcessor. This ensures that tuples that are updated, printed,
+inserted, or deleted are unpinned before they are lost.
+account by keeping track of a current tuple and a next tuple. The next tuple
+should be found before the current tuple is processed, otherwise processing
+risks unpinning the current tuple, which would make finding the next tuple
+impossible in certain situations where the tuple is file backed. The select
+plan node also takes this into account by checking the predicate then getting
+the next tuple. If the predicate is false, the current tuple is unpinned before
+moving on to the next tuple.
+
+C2.  In general, you only need to worry about unpinning tuples because
+     the backing page will also be unpinned.  However, there are some
+     situations when DBPages themselves must be unpinned directly.
+     Describe any situations where you unpin pages directly in your
+     implementation, and why you do so.  (Make sure to answer this
+     question in the context of your insert-optimization changes.)
+
+getNextTuple, getFirstTuple, and addTuple all scan through dbpages and
+pin them as they go. Thus, it is necessary to unpin pages while scanning
+if the page is not needed. When the operation is finally completed, the page
+being used should also be unpinned.
+
+D:  NanoDB Storage Performance
+------------------------------
+
+D1.  In 3-5 sentences, describe your general approach for improving the
+     performance of inserts, including what general file-level structuring
+     you use of blocks.
+
+     We maintain a linked list of pages that are partially filled and have room
+     for at least one more tuple. The header page is the head of the list, and
+     each data page starts with an integer pointing to the next page in the
+     list. The idea behind this approach is to eliminate all the time wasted by
+     visiting pages that are guaranteed to be full.
+
+D2.  Does your file-level organization have the potential to increase the
+     number of large disk seeks when performing inserts?  What steps do
+     you take, if any, to reduce the number of disk seeks?
+
+     This method does have the potential to have large disk seeks, as the
+     linked list is maintained in no particular order. When new pages are
+     allocated, however, we add the new page to the end of the list and not the
+     front. This means that after a long sequence of inserts, the pages will
+     actually be in roughly sequential order which minimizes the length of disk
+     seeks. Unfortunately, mixing deletes and updates completely removes any
+     semblance of order in the pages.
+
+D3.  What steps must be taken during a tuple-delete operation to update
+     your file-level structures?  How many pages must be written to?
+
+     When a tuple is deleted, we insert the page back into the list, so a total
+     of two pages need to be written to.
+
+D4.  What steps must be taken after a tuple-insert operation that fills
+     the data page?
+
+     This page must be removed from the list, and so we update the previous
+     page to point to the following page. We maintain the previous page as we
+     iterate through the list of pages (or use the header page if there is no
+     previous page), so only one page needs to be modified or accessed.
+
+D5.  Describe your criteria for when a page is considered to be "full."
+
+     With variable length tuples, we use the current tuple being inserted as a
+     measure of tuple size. If the current tuple cannot be added again, then it
+     is considered full.
+
+E:  Feedback [OPTIONAL]
+-----------------------
+
+These questions are optional, and they obviously won't affect your grade
+in any way (including if you hate everything about the assignment and
+databases in general, or Donnie and the TAs in particular).
+
+NOTE:  If you wish to give anonymous feedback, a similar survey will be
+       made available on the Moodle.
+
+E1.  How many hours total did your team spend on this assignment?
+     (That is, the sum of each teammate's time spent on the assignment.)
+
+E2.  What parts of the assignment were most time-consuming?
+
+E3.  Which parts of the assignment did you particularly enjoy?
+
+E4.  Which parts did you particularly dislike?
+
+E5.  Do you have any suggestions for how future versions of the
+     assignment can be improved?
+

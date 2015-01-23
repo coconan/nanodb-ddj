@@ -104,6 +104,7 @@ public class DumpTableCommand extends Command {
                     dumpOut.print(val);
             }
             dumpOut.println("]");
+
         }
 
         public void finish() {

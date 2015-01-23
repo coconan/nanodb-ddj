@@ -26,12 +26,17 @@ public class DataPage {
     /** A logging object for reporting anything interesting that happens. */
     private static Logger logger = Logger.getLogger(DataPage.class);
 
+    /**
+     * The offset in the data page where the page number of the next page in
+     * the list of non-full pages is stored.
+     */
+    public static final int OFFSET_NEXT_NON_FULL_PAGE = 0;
 
     /**
      * The offset in the data page where the number of slots in the slot table
      * is stored.
      */
-    public static final int OFFSET_NUM_SLOTS = 0;
+    public static final int OFFSET_NUM_SLOTS = 4;
 
 
     /**
@@ -44,18 +49,22 @@ public class DataPage {
 
     /**
      * Initialize a newly allocated data page.  Currently this involves setting
-     * the number of slots to 0.  There is no other internal structure in data
-     * pages at this point.
+     * the number of slots to 0. We also set the next non-full page pointer to
+     * be empty.
      *
      * @param dbPage the data page to initialize
      */
     public static void initNewPage(DBPage dbPage) {
         setNumSlots(dbPage, 0);
+        setNextNonFullPage(dbPage, 0);
     }
 
-
+    /**
+     * Get the offset where this slot begins. Remember that NUM_SLOTS is a
+     * short int.
+     */
     public static int getSlotOffset(int slot) {
-        return (1 + slot) * 2;
+        return OFFSET_NUM_SLOTS + 2 + (slot * 2);
     }
 
 
@@ -283,6 +292,28 @@ public class DataPage {
      */
     public static int getFreeSpaceInPage(DBPage dbPage) {
         return getTupleDataStart(dbPage) - getSlotsEndIndex(dbPage);
+    }
+
+    /**
+     * This static helper function returns the next page in the list of
+     * non-full pages.
+     */
+    public static int getNextNonFullPage(DBPage dbPage) {
+        return dbPage.readInt(OFFSET_NEXT_NON_FULL_PAGE);
+    }
+
+    /**
+     * This static helper function sets the next page in the list of non-full
+     * pages.
+     */
+    public static void setNextNonFullPage(DBPage dbPage, int page) {
+        if (page < 0) {
+            throw new IllegalArgumentException(
+                    "Page number cannot be negative."
+            );
+        }
+
+        dbPage.writeInt(OFFSET_NEXT_NON_FULL_PAGE, page);
     }
 
 
@@ -597,7 +628,22 @@ public class DataPage {
                 " slots, but slot " + slot + " was requested for deletion.");
         }
 
-        // TODO:  Complete this implementation.
-        throw new UnsupportedOperationException("TODO:  Implement!");
+        // Delete the tuple data from the offset in the specified slot
+        int offset = getSlotValue(dbPage, slot);
+        int length = getTupleLength(dbPage, slot);
+        deleteTupleDataRange(dbPage, offset, length);
+
+        // Change that slot's value to EMPTY_SLOT
+        setSlotValue(dbPage, slot, EMPTY_SLOT);
+        // Count the number of empty slots starting from the end and remove
+        // that many slots.
+        int remove = 0;
+        for (int i = numSlots - 1; i >= 0; i--) {
+            if (getSlotValue(dbPage, i) == EMPTY_SLOT) {
+                remove++;
+            }
+            break;
+        }
+        setNumSlots(dbPage, numSlots - remove);
     }
 }
