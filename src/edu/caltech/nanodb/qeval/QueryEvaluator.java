@@ -50,6 +50,9 @@ public class QueryEvaluator {
 
                 // Do whatever we're supposed to do with the tuple.
                 processor.process(lastTuple);
+
+                // The tuple is consumed so unpin it
+                lastTuple.unpin();
             }
         }
         finally {

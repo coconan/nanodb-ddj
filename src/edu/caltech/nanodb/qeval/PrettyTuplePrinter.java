@@ -101,8 +101,6 @@ public class PrettyTuplePrinter implements TupleProcessor {
 
             tuples.add(tupleName);
         }
-
-        tuple.unpin();
     }
 
 

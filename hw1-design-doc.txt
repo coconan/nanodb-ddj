@@ -65,8 +65,9 @@ C:  Unpinning Tuples and Pages
 C1.  Briefly describe your strategy for determining when tuples need to
      be unpinned.  Make sure to comment on plan-nodes and commands.
 
-Update, dump, delete, insert, and select all should unpin tuples once
-they are done processing them. The query evaluator should take this into
+The query evaluator should unpin tuples after it processes them with some
+given tupleProcessor. This ensures that tuples that are updated, printed,
+inserted, or deleted are unpinned before they are lost.
 account by keeping track of a current tuple and a next tuple. The next tuple
 should be found before the current tuple is processed, otherwise processing
 risks unpinning the current tuple, which would make finding the next tuple
