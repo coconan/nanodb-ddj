@@ -65,12 +65,27 @@ C:  Unpinning Tuples and Pages
 C1.  Briefly describe your strategy for determining when tuples need to
      be unpinned.  Make sure to comment on plan-nodes and commands.
 
+Update, dump, delete, insert, and select all should unpin tuples once
+they are done processing them. The query evaluator should take this into
+account by keeping track of a current tuple and a next tuple. The next tuple
+should be found before the current tuple is processed, otherwise processing
+risks unpinning the current tuple, which would make finding the next tuple
+impossible in certain situations where the tuple is file backed. The select
+plan node also takes this into account by checking the predicate then getting
+the next tuple. If the predicate is false, the current tuple is unpinned before
+moving on to the next tuple.
+
 C2.  In general, you only need to worry about unpinning tuples because
      the backing page will also be unpinned.  However, there are some
      situations when DBPages themselves must be unpinned directly.
      Describe any situations where you unpin pages directly in your
      implementation, and why you do so.  (Make sure to answer this
      question in the context of your insert-optimization changes.)
+
+getNextTuple, getFirstTuple, and addTuple all scan through dbpages and
+pin them as they go. Thus, it is necessary to unpin pages while scanning
+if the page is not needed. When the operation is finally completed, the page
+being used should also be unpinned. 
 
 D:  NanoDB Storage Performance
 ------------------------------
