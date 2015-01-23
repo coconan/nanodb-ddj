@@ -499,7 +499,6 @@ public abstract class PageTuple implements Tuple {
         // Delete the column data
         deleteTupleDataRange(offset, length);
         // Update the page offset and compute new value offsets
-        // TODO: Optimize to only compute required values (if necessary)
         pageOffset += length;
         computeValueOffsets();
     }
