@@ -86,7 +86,7 @@ C2.  In general, you only need to worry about unpinning tuples because
 getNextTuple, getFirstTuple, and addTuple all scan through dbpages and
 pin them as they go. Thus, it is necessary to unpin pages while scanning
 if the page is not needed. When the operation is finally completed, the page
-being used should also be unpinned. 
+being used should also be unpinned.
 
 D:  NanoDB Storage Performance
 ------------------------------
@@ -95,17 +95,43 @@ D1.  In 3-5 sentences, describe your general approach for improving the
      performance of inserts, including what general file-level structuring
      you use of blocks.
 
+     We maintain a linked list of pages that are partially filled and have room
+     for at least one more tuple. The header page is the head of the list, and
+     each data page starts with an integer pointing to the next page in the
+     list. The idea behind this approach is to eliminate all the time wasted by
+     visiting pages that are guaranteed to be full.
+
 D2.  Does your file-level organization have the potential to increase the
      number of large disk seeks when performing inserts?  What steps do
      you take, if any, to reduce the number of disk seeks?
 
+     This method does have the potential to have large disk seeks, as the
+     linked list is maintained in no particular order. When new pages are
+     allocated, however, we add the new page to the end of the list and not the
+     front. This means that after a long sequence of inserts, the pages will
+     actually be in roughly sequential order which minimizes the length of disk
+     seeks. Unfortunately, mixing deletes and updates completely removes any
+     semblance of order in the pages.
+
 D3.  What steps must be taken during a tuple-delete operation to update
      your file-level structures?  How many pages must be written to?
+
+     When a tuple is deleted, we insert the page back into the list, so a total
+     of two pages need to be written to.
 
 D4.  What steps must be taken after a tuple-insert operation that fills
      the data page?
 
+     This page must be removed from the list, and so we update the previous
+     page to point to the following page. We maintain the previous page as we
+     iterate through the list of pages (or use the header page if there is no
+     previous page), so only one page needs to be modified or accessed.
+
 D5.  Describe your criteria for when a page is considered to be "full."
+
+     With variable length tuples, we use the current tuple being inserted as a
+     measure of tuple size. If the current tuple cannot be added again, then it
+     is considered full.
 
 E:  Feedback [OPTIONAL]
 -----------------------
@@ -115,7 +141,7 @@ in any way (including if you hate everything about the assignment and
 databases in general, or Donnie and the TAs in particular).
 
 NOTE:  If you wish to give anonymous feedback, a similar survey will be
-       made available on the Moodle.  
+       made available on the Moodle.
 
 E1.  How many hours total did your team spend on this assignment?
      (That is, the sum of each teammate's time spent on the assignment.)
