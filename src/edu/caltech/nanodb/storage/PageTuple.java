@@ -11,6 +11,7 @@ import edu.caltech.nanodb.relations.ColumnType;
 import edu.caltech.nanodb.relations.Schema;
 import edu.caltech.nanodb.relations.SQLDataType;
 import edu.caltech.nanodb.relations.Tuple;
+import org.apache.log4j.Logger;
 
 
 /**
@@ -43,6 +44,9 @@ import edu.caltech.nanodb.relations.Tuple;
  * </p>
  */
 public abstract class PageTuple implements Tuple {
+
+    /** A logging object for reporting anything interesting that happens. */
+    private static Logger logger = Logger.getLogger(PageTuple.class);
 
     /**
      * This value is used in {@link #valueOffsets} when a column value is set to
@@ -499,7 +503,6 @@ public abstract class PageTuple implements Tuple {
         // Delete the column data
         deleteTupleDataRange(offset, length);
         // Update the page offset and compute new value offsets
-        // TODO: Optimize to only compute required values (if necessary)
         pageOffset += length;
         computeValueOffsets();
     }
@@ -520,33 +523,58 @@ public abstract class PageTuple implements Tuple {
         if (value == null)
             throw new IllegalArgumentException("value cannot be null");
 
-        /* TODO:  Implement!
-         *
-         * This time, the column's flag in the tuple's null-bitmap must be set
-         * to false (if it was true before).
-         *
-         * The trick is to figure out the size of the old column-value, and
-         * the size of the new column-value, so that the right amount of space
-         * can be made available for the new value.  If the column is a fixed-
-         * size type (e.g. an INTEGER) then this is easy, but if the column is
-         * a variable-size type ColumnValueSize() method to determine the size
-         * of a value as well.
-         *
-         * As before, the valueOffsets array is extremely important to use and
-         * modify correctly, so take care in how you manage it.
-         *(e.g. VARCHAR) then this will be more
-         * involved.  As before, retrieving the column's type will be important
-         * in implementing the method:  schema.getColumnInfo(iCol), and then
-         * schema.getColumnInfo(iCol).getType() to get the basic type info.
-         * You can use the get
-         * The tuple's data in the page starts at the offset returned by the
-         * getDataStartOffset() method; this is the offset past the tuple's
-         * null-bitmask.
-         *
-         * Finally, once you have made space for the new column value, you can
-         * write the value itself using the writeNonNullValue() method.
-         */
-        throw new UnsupportedOperationException("TODO:  Implement!");
+        // Get column type
+        ColumnType type = schema.getColumnInfo(colIndex).getType();
+        // Initialize offset to start of data offset
+        int offset = getDataStartOffset();
+        int oldLength;
+        int newLength;
+        // For null values, find the first non-null column before this one
+        // and set the offset to the end of that column. If we don't find
+        // any or we're updating the first column, offset is already
+        // initialized to the start of the data. Set old length to 0.
+        if (isNullValue(colIndex)) {
+            for (int i = colIndex - 1; i >= 0; i--) {
+                if (valueOffsets[i] != NULL_OFFSET) {
+                    ColumnType colType = schema.getColumnInfo(i).getType();
+                    offset = valueOffsets[i] + getColumnValueSize(colType,
+                            valueOffsets[i]);
+                    break;
+                }
+
+            }
+            oldLength = 0;
+        } else {
+            // For non-null values, set offset to the offset of the column and
+            // set old length to the column's length.
+            offset = valueOffsets[colIndex];
+            oldLength = getColumnValueSize(type, offset);
+        }
+
+        // Unset the null flag.
+        setNullFlag(colIndex, false);
+
+        // For VARCHARs, find the data length. Other types don't need this
+        // and can just use getStorageSize with dataLength 0.
+        int dataLength = 0;
+        if (type.getBaseType() == SQLDataType.VARCHAR) {
+            String strValue = TypeConverter.getStringValue(value);
+            dataLength = strValue.length();
+        }
+        newLength = getStorageSize(type, dataLength);
+
+        // Find the difference in length and insert/delete space
+        int lenDif = newLength - oldLength;
+        if (lenDif > 0) {
+            insertTupleDataRange(offset, lenDif);
+        } else if (lenDif < 0) {
+            deleteTupleDataRange(offset, -lenDif);
+        }
+
+        // Update offsets and write the object to the new location.
+        pageOffset -= lenDif;
+        writeNonNullValue(dbPage, offset - lenDif, type, value);
+        computeValueOffsets();
     }
 
 
