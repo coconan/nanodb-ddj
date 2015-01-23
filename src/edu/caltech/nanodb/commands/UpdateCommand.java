@@ -129,6 +129,9 @@ public class UpdateCommand extends QueryCommand {
             eventDispatch.fireBeforeRowUpdated(tableInfo, tuple, newTuple);
             tupleFile.updateTuple(tuple, newValues);
             eventDispatch.fireAfterRowUpdated(tableInfo, oldTuple, tuple);
+
+            // Done with the tuple, unpin it
+            tuple.unpin();
         }
 
         public void finish() {
