@@ -73,12 +73,12 @@ public class DeleteCommand extends QueryCommand {
 
             // Make a copy of this, because once we delete the tuple, we can't
             // use the "tuple" variable anymore!
-            //TupleLiteral oldTuple = new TupleLiteral(tuple);
+            TupleLiteral oldTuple = new TupleLiteral(tuple);
             // Raises String Index Out of bounds Exception when copying into tuple literal?
 
             eventDispatch.fireBeforeRowDeleted(tableInfo, tuple);
             tupleFile.deleteTuple(tuple);
-           // eventDispatch.fireAfterRowDeleted(tableInfo, oldTuple);
+            eventDispatch.fireAfterRowDeleted(tableInfo, oldTuple);
         }
 
         public void finish() {
