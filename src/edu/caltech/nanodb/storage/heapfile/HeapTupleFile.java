@@ -200,6 +200,9 @@ public class HeapTupleFile implements TupleFile {
         HeapFilePageTuple ptup = (HeapFilePageTuple) tup;
 
         DBPage dbPage = ptup.getDBPage();
+
+        if (dbPage == null) throw new IllegalArgumentException("NULL DBPAGE, TUPLE INVALID?");
+
         DBFile dbFile = dbPage.getDBFile();
 
         int nextSlot = ptup.getSlot() + 1;
@@ -231,6 +234,8 @@ public class HeapTupleFile implements TupleFile {
             catch (EOFException e) {
                 // Hit the end of the file with no more tuples.  We are done
                 // scanning.
+                // Unpin the final dbPage
+                dbPage.unpin();
                 return null;
             }
         }
@@ -334,6 +339,9 @@ public class HeapTupleFile implements TupleFile {
             HeapFilePageTuple.storeNewTuple(schema, dbPage, slot, tupOffset, tup);
 
         DataPage.sanityCheck(dbPage);
+
+        // Done with the page, so we can unpin it.
+        dbPage.unpin();
 
         return pageTup;
     }

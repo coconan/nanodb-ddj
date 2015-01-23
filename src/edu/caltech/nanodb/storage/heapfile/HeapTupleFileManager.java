@@ -69,6 +69,9 @@ public class HeapTupleFileManager implements TupleFileManager {
         int statsSize = hpWriter.getPosition() - schemaEndPos;
         HeaderPage.setStatsSize(headerPage, statsSize);
 
+        // Unpin page 0 since we are done with it
+        headerPage.unpin();
+
         return new HeapTupleFile(storageManager, dbFile, schema, stats);
     }
 
@@ -92,6 +95,9 @@ public class HeapTupleFileManager implements TupleFileManager {
         // Read in the statistics.
         StatsWriter statsWriter = new StatsWriter();
         TableStats stats = statsWriter.readTableStats(hpReader, schema);
+
+        // Unpin page 0 since we are done with it
+        headerPage.unpin();
 
         return new HeapTupleFile(storageManager, dbFile, schema, stats);
     }

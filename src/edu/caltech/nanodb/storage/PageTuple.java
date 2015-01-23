@@ -11,6 +11,7 @@ import edu.caltech.nanodb.relations.ColumnType;
 import edu.caltech.nanodb.relations.Schema;
 import edu.caltech.nanodb.relations.SQLDataType;
 import edu.caltech.nanodb.relations.Tuple;
+import org.apache.log4j.Logger;
 
 
 /**
@@ -43,6 +44,9 @@ import edu.caltech.nanodb.relations.Tuple;
  * </p>
  */
 public abstract class PageTuple implements Tuple {
+
+    /** A logging object for reporting anything interesting that happens. */
+    private static Logger logger = Logger.getLogger(PageTuple.class);
 
     /**
      * This value is used in {@link #valueOffsets} when a column value is set to
