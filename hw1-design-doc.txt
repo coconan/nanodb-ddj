@@ -6,26 +6,29 @@ A:  Logistics
 
 A1.  List your team name and the people who worked on this assignment.
 
-    nanodb-ddj
+      nanodb-ddj
 
-     Daniel Wang
-     Jerry Zhang
-     Daniel Kong
+      Daniel Kong
+      Daniel Wang
+      Jerry Zhang
 
 A2.  Specify the tag name and commit-hash of the Git version you are
      submitting for your assignment.  (You can list the commit hashes
      of your repository tags with this command:  git show-ref --tags)
 
-     Tag name: set1
-     Commit hash: 66c20c70622aaaf14bc3f1a2802f6bca086c5dbd
+     Tag name: set1-submission2
+     Commit hash: 6e71c105ef0219bd68efa926e2941a47d3228e30
 
 A3.  Specify any late tokens you are applying to this assignment, or
      "none" if no late tokens.
 
+     1 token
+
 A4.  Briefly describe what parts of the assignment each teammate focused on.
-    Daniel Wang: Delete/Update
-    Jerry Zhang: Buffer Manager
-    Daniel Kong: Performance Improvement
+
+      Daniel Wang: Delete/Update
+      Jerry Zhang: Buffer Manager
+      Daniel Kong: Performance Improvement
 
 B:  Deleting and Updating Tuples
 --------------------------------
@@ -152,12 +155,19 @@ NOTE:  If you wish to give anonymous feedback, a similar survey will be
 E1.  How many hours total did your team spend on this assignment?
      (That is, the sum of each teammate's time spent on the assignment.)
 
+      Somewhere around 30 hours collectively.
+
 E2.  What parts of the assignment were most time-consuming?
 
+      Fixing bugs in Donnie's code :(
+
 E3.  Which parts of the assignment did you particularly enjoy?
+
+      It was pretty interesting overall, not much in particular was unpleasant.
 
 E4.  Which parts did you particularly dislike?
 
 E5.  Do you have any suggestions for how future versions of the
      assignment can be improved?
 
+      I'll send Donnie the bugs I found...
