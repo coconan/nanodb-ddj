@@ -212,7 +212,9 @@ public class HeapTupleFile implements TupleFile {
 
         DBPage dbPage = ptup.getDBPage();
 
-        if (dbPage == null) throw new IllegalArgumentException("NULL DBPAGE, TUPLE INVALID?");
+        if (dbPage == null) {
+            throw new IllegalArgumentException("NULL DBPAGE, TUPLE INVALID?");
+        }
 
         DBFile dbFile = dbPage.getDBFile();
 
@@ -346,7 +348,8 @@ public class HeapTupleFile implements TupleFile {
         int tupOffset = DataPage.getSlotValue(dbPage, slot);
 
         logger.debug(String.format(
-            "New tuple will reside on page %d, slot %d.", pageNo, slot));
+            "New tuple will reside on page %d, slot %d with offset %d.",
+                pageNo, slot, tupOffset));
 
         HeapFilePageTuple pageTup =
             HeapFilePageTuple.storeNewTuple(schema, dbPage, slot, tupOffset, tup);
@@ -358,6 +361,9 @@ public class HeapTupleFile implements TupleFile {
         // simply use this current tuple as a rough estimate of the size
         // needed. That is, will this tuple fit in the page again or not?
         if (DataPage.getFreeSpaceInPage(dbPage) < tupSize + 2) {
+            // Set this page to "full".
+            DataPage.setPageIsFull(dbPage, true);
+
             // Remove this from the list of non-full pages.
             int nextNonFullPage = DataPage.getNextNonFullPage(dbPage);
             if (prevPage == null) {
@@ -429,12 +435,18 @@ public class HeapTupleFile implements TupleFile {
         DBPage dbPage = ptup.getDBPage();
         DataPage.deleteTuple(dbPage, ptup.getSlot());
 
-        // Add this to the list of non-full pages.
-        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
-        int nextNonFullPage = HeaderPage.getFirstNonFullPage(headerPage);
-        HeaderPage.setFirstNonFullPage(headerPage, dbPage.getPageNo());
-        DataPage.setNextNonFullPage(dbPage, nextNonFullPage);
-        headerPage.unpin();
+        // Add this to the list of non-full pages if it was not already in the
+        // list.
+        if (DataPage.getPageIsFull(dbPage)) {
+            DataPage.setPageIsFull(dbPage, false);
+
+            // Insert the page at the front of the list.
+            DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
+            int nextNonFullPage = HeaderPage.getFirstNonFullPage(headerPage);
+            HeaderPage.setFirstNonFullPage(headerPage, dbPage.getPageNo());
+            DataPage.setNextNonFullPage(dbPage, nextNonFullPage);
+            headerPage.unpin();
+        }
 
         DataPage.sanityCheck(dbPage);
     }
