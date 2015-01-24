@@ -170,7 +170,7 @@ public class DataPage {
                 "Slots occur at even indexes (each slot is a short).");
         }
 
-        int slot = (offset - 2) / 2;
+        int slot = (offset - 2 - OFFSET_NUM_SLOTS) / 2;
         int numSlots = getNumSlots(dbPage);
 
         if (slot < 0 || slot >= numSlots) {
