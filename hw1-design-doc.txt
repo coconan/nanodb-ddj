@@ -116,8 +116,12 @@ D2.  Does your file-level organization have the potential to increase the
 D3.  What steps must be taken during a tuple-delete operation to update
      your file-level structures?  How many pages must be written to?
 
-     When a tuple is deleted, we insert the page back into the list, so a total
-     of two pages need to be written to.
+     When a tuple is deleted, we check if the page was previously marked as
+     "full". If it was full, then it was not in the not-full list of pages, so
+     we insert it back into the list. Otherwise there isn't much else to do.
+     Inserting the page back into the list requires two page writes (update the
+     header page to point to this page as the first element in the list, and
+     update this page to point to the next page in the list).
 
 D4.  What steps must be taken after a tuple-insert operation that fills
      the data page?
@@ -126,6 +130,8 @@ D4.  What steps must be taken after a tuple-insert operation that fills
      page to point to the following page. We maintain the previous page as we
      iterate through the list of pages (or use the header page if there is no
      previous page), so only one page needs to be modified or accessed.
+
+     We also mark this page as "full".
 
 D5.  Describe your criteria for when a page is considered to be "full."
 
