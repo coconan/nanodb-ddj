@@ -28,15 +28,21 @@ public class DataPage {
 
     /**
      * The offset in the data page where the page number of the next page in
-     * the list of non-full pages is stored.
+     * the list of non-full pages is stored. This is an integer (4 bytes).
      */
     public static final int OFFSET_NEXT_NON_FULL_PAGE = 0;
 
     /**
-     * The offset in the data page where the number of slots in the slot table
-     * is stored.
+     * The offset in the data page where its "full" status is stored. This is a
+     * short integer (2 bytes).
      */
-    public static final int OFFSET_NUM_SLOTS = 4;
+    public static final int OFFSET_PAGE_IS_FULL = 4;
+
+    /**
+     * The offset in the data page where the number of slots in the slot table
+     * is stored. This is a short integer (2 bytes).
+     */
+    public static final int OFFSET_NUM_SLOTS = 6;
 
 
     /**
@@ -170,7 +176,7 @@ public class DataPage {
                 "Slots occur at even indexes (each slot is a short).");
         }
 
-        int slot = (offset - 2) / 2;
+        int slot = (offset - 2 - OFFSET_NUM_SLOTS) / 2;
         int numSlots = getNumSlots(dbPage);
 
         if (slot < 0 || slot >= numSlots) {
@@ -312,8 +318,25 @@ public class DataPage {
                     "Page number cannot be negative."
             );
         }
-
         dbPage.writeInt(OFFSET_NEXT_NON_FULL_PAGE, page);
+    }
+
+
+    /**
+     * This static helper function returns true if the page is full (cannot
+     * contain any additional tuples).
+     */
+    public static boolean getPageIsFull(DBPage dbPage) {
+        return dbPage.readShort(OFFSET_PAGE_IS_FULL) != 0;
+    }
+
+
+    /**
+     * This static helper function sets the "full" status of the page.
+     */
+    public static void setPageIsFull(DBPage dbPage, boolean pageIsFull) {
+        int value = (pageIsFull) ? 1 : 0;
+        dbPage.writeShort(OFFSET_PAGE_IS_FULL, value);
     }
 
 
@@ -483,7 +506,7 @@ public class DataPage {
         int numSlots = getNumSlots(dbPage);
         for (int iSlot = 0; iSlot < numSlots; iSlot++) {
 
-            int slotOffset = dbPage.readUnsignedShort(2 * (iSlot + 1));
+            int slotOffset = dbPage.readUnsignedShort(getSlotOffset(iSlot));
             if (slotOffset != EMPTY_SLOT && slotOffset <= off) {
                 // Update this slot's offset.
                 slotOffset += len;
