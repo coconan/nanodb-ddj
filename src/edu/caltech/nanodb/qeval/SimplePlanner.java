@@ -4,14 +4,16 @@ package edu.caltech.nanodb.qeval;
 import java.io.IOException;
 import java.util.List;
 
-import edu.caltech.nanodb.commands.SelectValue;
-import edu.caltech.nanodb.plans.*;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.commands.FromClause;
 import edu.caltech.nanodb.commands.SelectClause;
 
 import edu.caltech.nanodb.expressions.Expression;
+
+import edu.caltech.nanodb.plans.FileScanNode;
+import edu.caltech.nanodb.plans.PlanNode;
+import edu.caltech.nanodb.plans.SelectNode;
 
 import edu.caltech.nanodb.relations.TableInfo;
 import edu.caltech.nanodb.storage.StorageManager;
@@ -37,59 +39,7 @@ public class SimplePlanner implements Planner {
         this.storageManager = storageManager;
     }
 
-    /**
-     * Returns the root of a plan tree representing a given FromClause.
-     *
-     * @param fromClause an object describing the relation to query
-     * @param predicate optional predicate from enclosing SELECT, or
-     *        {@code null}
-     *
-     * @return a plan tree representing the given FromClause
-     *
-     * @throws IOException if an IO error occurs when the planner attempts to
-     *         load schema and indexing information.
-     */
-    private PlanNode fromClauseToNode(FromClause fromClause) throws IOException{
-        PlanNode fromNode;
-        // If no from clause exists, return null.
-        if (fromClause == null){
-            return null;
-        }
-        // Otherwise, switch based on from clause type
-        switch (fromClause.getClauseType()) {
-            // For base tables, file scan and rename if needed
-            case BASE_TABLE:
-                fromNode = makeSimpleSelect(fromClause.getTableName(),
-                        null, null);
-                if (fromClause.isRenamed()) {
-                    fromNode = new RenameNode(fromNode,
-                            fromClause.getResultName());
-                }
-                break;
-            case SELECT_SUBQUERY:
-                // For subqueries, recursively call makePlan and rename
-                fromNode = makePlan(fromClause.getSelectClause(), null);
-                fromNode.prepare();
-                if (fromClause.isRenamed()) {
-                    fromNode = new RenameNode(fromNode, fromClause.getResultName());
-                }
-                break;
-            case JOIN_EXPR:
-                // For joins, evaluate left and right children, then generate the
-                // join node.
-                PlanNode left = fromClauseToNode(fromClause.getLeftChild());
-                PlanNode right = fromClauseToNode(fromClause.getRightChild());
-                fromNode = new NestedLoopsJoinNode(left, right,
-                        fromClause.getJoinType(), fromClause.getOnExpression());
-                break;
-            default:
-                // No other types should occur.
-                logger.error("This should never occur");
-                fromNode = null;
-                break;
-        }
-        return fromNode;
-    }
+
     /**
      * Returns the root of a plan tree suitable for executing the specified
      * query.
@@ -104,24 +54,30 @@ public class SimplePlanner implements Planner {
     @Override
     public PlanNode makePlan(SelectClause selClause,
         List<SelectClause> enclosingSelects) throws IOException {
-        // Get the from clause and convert it to a plan tree
-        FromClause fromClause = selClause.getFromClause();
-        PlanNode fromNode = fromClauseToNode(fromClause);
-        PlanNode ret = fromNode;
-        // If there's a nontrivial project, add a project node.
-        if (!selClause.isTrivialProject()) {
-            ret = new ProjectNode(fromNode, selClause.getSelectValues());
-        }
-        // Prepare the plan and return it
-        ret.prepare();
-        return ret;
+        // TODO:  Implement!
 
-        /* Still haven't implemented this. Extra credit?
+        // For HW1, we have a very simple implementation that defers to
+        // makeSimpleSelect() to handle simple SELECT queries with one table,
+        // and an optional WHERE clause.
 
         if (enclosingSelects != null && !enclosingSelects.isEmpty()) {
             throw new UnsupportedOperationException(
                 "Not yet implemented:  enclosing queries!");
-        }*/
+        }
+
+        if (!selClause.isTrivialProject()) {
+            throw new UnsupportedOperationException(
+                "Not yet implemented:  project!");
+        }
+
+        FromClause fromClause = selClause.getFromClause();
+        if (!fromClause.isBaseTable()) {
+            throw new UnsupportedOperationException(
+                "Not yet implemented:  joins or subqueries in FROM clause!");
+        }
+
+        return makeSimpleSelect(fromClause.getTableName(),
+            selClause.getWhereExpr(), null);
     }
 
 
