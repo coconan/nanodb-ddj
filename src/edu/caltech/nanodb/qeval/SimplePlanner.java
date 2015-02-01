@@ -4,8 +4,9 @@ package edu.caltech.nanodb.qeval;
 import java.io.IOException;
 import java.util.List;
 
-import edu.caltech.nanodb.commands.SelectValue;
+import edu.caltech.nanodb.expressions.OrderByExpression;
 import edu.caltech.nanodb.plans.*;
+import edu.caltech.nanodb.relations.JoinType;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.commands.FromClause;
@@ -41,8 +42,6 @@ public class SimplePlanner implements Planner {
      * Returns the root of a plan tree representing a given FromClause.
      *
      * @param fromClause an object describing the relation to query
-     * @param predicate optional predicate from enclosing SELECT, or
-     *        {@code null}
      *
      * @return a plan tree representing the given FromClause
      *
@@ -79,8 +78,38 @@ public class SimplePlanner implements Planner {
                 // join node.
                 PlanNode left = fromClauseToNode(fromClause.getLeftChild());
                 PlanNode right = fromClauseToNode(fromClause.getRightChild());
-                fromNode = new NestedLoopsJoinNode(left, right,
-                        fromClause.getJoinType(), fromClause.getOnExpression());
+                FromClause.JoinConditionType condition = fromClause.getConditionType();
+                Expression predicate=  null;
+                boolean needProject = false;
+
+                // For ON clauses, predicate is the OnExpression
+                if (condition == FromClause.JoinConditionType.JOIN_ON_EXPR) {
+                    predicate = fromClause.getOnExpression();
+                }
+                // For other USING and NATURAL JOIN, predicate is
+                // PreparedJoinExpr
+                else if (condition == FromClause.JoinConditionType.JOIN_USING
+                        || condition == FromClause.JoinConditionType.NATURAL_JOIN) {
+                    // USING and NATURAL require a projected schema
+                    needProject = true;
+                    predicate = fromClause.getPreparedJoinExpr();
+                }
+
+                JoinType joinType = fromClause.getJoinType();
+                // Right outer joins can't be done with nested loop, so
+                // convert to project + left join
+                if (joinType == JoinType.RIGHT_OUTER) {
+                    needProject = true;
+                    joinType = JoinType.LEFT_OUTER;
+                }
+
+                // Generate the join node
+                fromNode = new NestedLoopsJoinNode(left, right, joinType, predicate);
+                // Project if necessary
+                if (needProject) {
+                    fromNode = new ProjectNode(fromNode,
+                            fromClause.getPreparedSelectValues());
+                }
                 break;
             default:
                 // No other types should occur.
@@ -104,24 +133,35 @@ public class SimplePlanner implements Planner {
     @Override
     public PlanNode makePlan(SelectClause selClause,
         List<SelectClause> enclosingSelects) throws IOException {
-        // Get the from clause and convert it to a plan tree
-        FromClause fromClause = selClause.getFromClause();
-        PlanNode fromNode = fromClauseToNode(fromClause);
-        PlanNode ret = fromNode;
-        // If there's a nontrivial project, add a project node.
-        if (!selClause.isTrivialProject()) {
-            ret = new ProjectNode(fromNode, selClause.getSelectValues());
-        }
-        // Prepare the plan and return it
-        ret.prepare();
-        return ret;
-
-        /* Still haven't implemented this. Extra credit?
 
         if (enclosingSelects != null && !enclosingSelects.isEmpty()) {
             throw new UnsupportedOperationException(
-                "Not yet implemented:  enclosing queries!");
-        }*/
+                    "Not yet implemented:  enclosing queries!");
+        }
+
+        // Get the from clause and convert it to a plan tree
+        FromClause fromClause = selClause.getFromClause();
+        PlanNode fromNode = fromClauseToNode(fromClause);
+        PlanNode plan = fromNode;
+        Expression predicate = selClause.getWhereExpr();
+        // Insert a predicate if needed
+        if (predicate != null) {
+            plan = new SimpleFilterNode(plan, predicate);
+        }
+
+        // If there's a nontrivial project, add a project node.
+        if (!selClause.isTrivialProject()) {
+            plan = new ProjectNode(plan, selClause.getSelectValues());
+        }
+
+        // If there's an ORDER BY, add a sort node
+        List<OrderByExpression> orderClause = selClause.getOrderByExprs();
+        if (!orderClause.isEmpty()) {
+            plan = new SortNode(plan, orderClause);
+        }
+        // Prepare the plan and return it
+        plan.prepare();
+        return plan;
     }
 
 
