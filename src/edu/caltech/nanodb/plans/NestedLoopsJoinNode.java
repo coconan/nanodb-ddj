@@ -10,6 +10,10 @@ import edu.caltech.nanodb.expressions.Expression;
 import edu.caltech.nanodb.expressions.OrderByExpression;
 import edu.caltech.nanodb.relations.JoinType;
 import edu.caltech.nanodb.relations.Tuple;
+import edu.caltech.nanodb.expressions.TupleLiteral;
+
+import static edu.caltech.nanodb.relations.JoinType.ANTIJOIN;
+import static edu.caltech.nanodb.relations.JoinType.LEFT_OUTER;
 
 
 /**
@@ -30,6 +34,12 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
 
     /** Set to true when we have exhausted all tuples from our subplans. */
     private boolean done;
+
+    /** Set to true once a tuple on the left has matched a tuple on the right */
+    private boolean matched;
+
+    /** A cached tuple of nulls for padding **/
+    private TupleLiteral rightNulls;
 
 
     public NestedLoopsJoinNode(PlanNode leftChild, PlanNode rightChild,
@@ -152,6 +162,8 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
         // Use the parent class' helper-function to prepare the schema.
         prepareSchemaStats();
 
+        if (joinType == LEFT_OUTER) rightNulls = new TupleLiteral(rightSchema.numColumns());
+
         // TODO:  Implement the rest
         cost = null;
     }
@@ -161,6 +173,7 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
         super.initialize();
 
         done = false;
+        matched = false;
         leftTuple = null;
         rightTuple = null;
     }
@@ -178,8 +191,33 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
             return null;
 
         while (getTuplesToJoin()) {
-            if (canJoinTuples())
-                return joinTuples(leftTuple, rightTuple);
+            switch (joinType) {
+                case CROSS:
+                    return joinTuples(leftTuple, rightTuple);
+                case INNER:
+                    if (canJoinTuples()) return joinTuples(leftTuple, rightTuple);
+                    break;
+                case LEFT_OUTER:
+                    if (rightTuple == null) {
+                        matched = true;
+                        return joinTuples(leftTuple, rightNulls);
+                    } else if (canJoinTuples()) {
+                        matched = true;
+                        return joinTuples(leftTuple, rightTuple);
+                    }
+                    break;
+                case SEMIJOIN:
+                    if (canJoinTuples()) return leftTuple;
+                    break;
+                case ANTIJOIN:
+                    if (!canJoinTuples()) return leftTuple;
+                    break;
+
+                case RIGHT_OUTER:
+                case FULL_OUTER:
+                default:
+                    throw new IllegalArgumentException("Unable to execute nested loop join of type " + String.valueOf(joinType));
+            }
         }
 
         return null;
@@ -194,8 +232,27 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
      *         {@code false} if no more pairs of tuples are available to join.
      */
     private boolean getTuplesToJoin() throws IOException {
-        // TODO:  Implement
-        return false;
+        if (leftTuple == null && !done) leftTuple = leftChild.getNextTuple();
+
+        rightTuple = rightChild.getNextTuple();
+
+        if (rightTuple == null) {
+            if (joinType == LEFT_OUTER && matched == false) {
+                return true;
+            }
+
+            leftTuple = leftChild.getNextTuple();
+            matched = false;
+
+            if (leftTuple == null) {
+                done = true;
+                return false;
+            }
+
+            rightChild.initialize();
+            rightTuple = rightChild.getNextTuple();
+        }
+        return true;
     }
 
 
