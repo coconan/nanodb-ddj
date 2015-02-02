@@ -100,6 +100,9 @@ public class SimplePlanner implements Planner {
                 // convert to project + left join
                 if (joinType == JoinType.RIGHT_OUTER) {
                     needProject = true;
+                    PlanNode temp = left;
+                    left = right;
+                    right = temp;
                     joinType = JoinType.LEFT_OUTER;
                 }
 

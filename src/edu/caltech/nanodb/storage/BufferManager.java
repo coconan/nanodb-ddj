@@ -489,8 +489,9 @@ public class BufferManager {
                 " without a corresponding unpin call", sessionID,
                 spc.dbPage.getPageNo(), spc.pinCount));
 
-            while (spc.pinCount > 0)
+            while (spc.pinCount > 0) {
                 spc.dbPage.unpin();
+            }
         }
 
         // Since unpinning the pages calls back into the buffer manager,

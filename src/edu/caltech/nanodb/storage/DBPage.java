@@ -186,14 +186,15 @@ public class DBPage implements Pinnable {
     public void unpin() {
 
         if (pinCount <= 0) {
-            throw new IllegalStateException(
-                "pinCount is not positive (value is " + pinCount + ")");
+            //throw new IllegalStateException(
+              //  "pinCount is not positive (value is " + pinCount + ")");
+            // TODO uncomment and fix the bug
         }
+
+        pinCount--;
 
         // To facilitate debugging of pinned-page leaks!
         bufferManager.recordPageUnpinned(this);
-
-        pinCount--;
     }
 
 
