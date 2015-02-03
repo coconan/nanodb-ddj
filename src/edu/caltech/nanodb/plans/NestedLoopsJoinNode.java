@@ -193,11 +193,15 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
         while (getTuplesToJoin()) {
             switch (joinType) {
                 case CROSS:
+                    // Cross joins include all pairs of tuples
                     return joinTuples(leftTuple, rightTuple);
                 case INNER:
+                    // Inner joins include the pair if the predicate passes
                     if (canJoinTuples()) return joinTuples(leftTuple, rightTuple);
                     break;
                 case LEFT_OUTER:
+                    // Left outer joins can either include the pair, or include the left tuple
+                    // padded with nulls on the right
                     if (rightTuple == null) {
                         matched = true;
                         return joinTuples(leftTuple, rightNulls);
@@ -207,16 +211,33 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
                     }
                     break;
                 case SEMIJOIN:
-                    if (canJoinTuples()) return leftTuple;
+                    // If the predicate is true, include the left tuple and break the loop by moving the left tuple
+                    // forward and resetting the right child
+                    if (canJoinTuples()) {
+                        Tuple ret = leftTuple;
+                        leftTuple = leftChild.getNextTuple();
+                        rightChild.initialize();
+                        rightTuple = rightChild.getNextTuple();
+                        return ret;
+                    }
                     break;
                 case ANTIJOIN:
-                    if (!canJoinTuples()) return leftTuple;
+                    // If the right tuple returns null, the left tuple must have had no matches
+                    if (rightTuple == null) {
+                        matched = true;
+                        return leftTuple;
+                    } else if (canJoinTuples()) {
+                        matched = true;
+                    }
                     break;
 
                 case RIGHT_OUTER:
                 case FULL_OUTER:
                 default:
-                    throw new IllegalArgumentException("Unable to execute nested loop join of type " + String.valueOf(joinType));
+                    // Right outer should have been converted to left outer in planning. Full outer is not supported
+                    // by the nested loop algorithm.
+                    throw new IllegalArgumentException("Unable to execute nested loop join of type " +
+                                                                                String.valueOf(joinType));
             }
         }
 
@@ -232,25 +253,48 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
      *         {@code false} if no more pairs of tuples are available to join.
      */
     private boolean getTuplesToJoin() throws IOException {
+        // This line initializes the very first tuple of the left node
         if (leftTuple == null && !done) leftTuple = leftChild.getNextTuple();
 
+        if (leftTuple == null) {
+            // The left node appears to have no tuples
+            done = true;
+            return false;
+        }
+
+        // Move the right tuple forward
         rightTuple = rightChild.getNextTuple();
 
+        // If we have reached the end of the right child
         if (rightTuple == null) {
-            if (joinType == LEFT_OUTER && matched == false) {
+            // Return just the left tuple if this is a left outer or antijoin and it did not match with
+            // any tuples on the right
+            if (joinType == LEFT_OUTER && !matched) {
+                return true;
+            } else if (joinType == ANTIJOIN && !matched) {
                 return true;
             }
 
+            // Move the left tuple forward
             leftTuple = leftChild.getNextTuple();
             matched = false;
 
+            // If there are no tuples left in the left node
             if (leftTuple == null) {
                 done = true;
                 return false;
             }
 
+            // Reset the right child and move it forward
             rightChild.initialize();
             rightTuple = rightChild.getNextTuple();
+
+            // If the right node has no tuples
+            if (rightTuple == null) {
+                // If this is a left outer join or antijoin we still want to return the left tuples. Otherwise
+                // the right node is empty so just end here.
+                return joinType == LEFT_OUTER || joinType == ANTIJOIN;
+            }
         }
         return true;
     }
