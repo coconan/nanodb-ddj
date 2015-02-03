@@ -14,6 +14,10 @@ import edu.caltech.nanodb.commands.SelectClause;
 
 import edu.caltech.nanodb.expressions.Expression;
 
+import edu.caltech.nanodb.plans.FileScanNode;
+import edu.caltech.nanodb.plans.PlanNode;
+import edu.caltech.nanodb.plans.SelectNode;
+
 import edu.caltech.nanodb.relations.TableInfo;
 import edu.caltech.nanodb.storage.StorageManager;
 
@@ -122,6 +126,8 @@ public class SimplePlanner implements Planner {
         }
         return fromNode;
     }
+
+
     /**
      * Returns the root of a plan tree suitable for executing the specified
      * query.
