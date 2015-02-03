@@ -2,11 +2,16 @@ package edu.caltech.nanodb.qeval;
 
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
+import edu.caltech.nanodb.commands.SelectValue;
+import edu.caltech.nanodb.expressions.ColumnValue;
 import edu.caltech.nanodb.expressions.OrderByExpression;
 import edu.caltech.nanodb.plans.*;
+import edu.caltech.nanodb.relations.ColumnInfo;
 import edu.caltech.nanodb.relations.JoinType;
+import edu.caltech.nanodb.relations.Schema;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.commands.FromClause;
@@ -81,6 +86,7 @@ public class SimplePlanner implements Planner {
                 FromClause.JoinConditionType condition = fromClause.getConditionType();
                 Expression predicate=  null;
                 boolean needProject = false;
+                List<SelectValue> projectValues = null;
 
                 // For ON clauses, predicate is the OnExpression
                 if (condition == FromClause.JoinConditionType.JOIN_ON_EXPR) {
@@ -99,7 +105,19 @@ public class SimplePlanner implements Planner {
                 // Right outer joins can't be done with nested loop, so
                 // convert to project + left join
                 if (joinType == JoinType.RIGHT_OUTER) {
-                    needProject = true;
+                    // Calculate project values only if not USING or NATURAL
+                    if (!needProject) {
+                        needProject = true;
+                        // Get project values from the schema
+                        projectValues = new ArrayList<SelectValue>();
+                        Schema schema = fromClause.getPreparedSchema();
+                        for (ColumnInfo colInfo : schema) {
+                            SelectValue selVal = new SelectValue(
+                                    new ColumnValue(colInfo.getColumnName()), null);
+                            projectValues.add(selVal);
+                        }
+                    }
+                    // Switch right and left, then convert to left join
                     PlanNode temp = left;
                     left = right;
                     right = temp;
@@ -110,8 +128,10 @@ public class SimplePlanner implements Planner {
                 fromNode = new NestedLoopsJoinNode(left, right, joinType, predicate);
                 // Project if necessary
                 if (needProject) {
-                    fromNode = new ProjectNode(fromNode,
-                            fromClause.getPreparedSelectValues());
+                    if (projectValues == null) {
+                        projectValues = fromClause.getPreparedSelectValues();
+                    }
+                    fromNode = new ProjectNode(fromNode, projectValues);
                 }
                 break;
             default:
