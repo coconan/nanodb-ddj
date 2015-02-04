@@ -186,9 +186,8 @@ public class DBPage implements Pinnable {
     public void unpin() {
 
         if (pinCount <= 0) {
-            //throw new IllegalStateException(
-              //  "pinCount is not positive (value is " + pinCount + ")");
-            // TODO uncomment and fix the bug
+            throw new IllegalStateException(
+                "pinCount is not positive (value is " + pinCount + ")");
         }
 
         pinCount--;
