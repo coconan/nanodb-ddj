@@ -201,7 +201,9 @@ public class SimplePlanner implements Planner {
         // which is not valid SQL. To do this we must traverse the FromClause
         // tree.
         Queue<FromClause> nodesToVisit = new LinkedList<FromClause>();
-        nodesToVisit.add(fromClause);
+        if (fromClause != null) {
+            nodesToVisit.add(fromClause);
+        }
         while (nodesToVisit.size() > 0) {
             FromClause node = nodesToVisit.poll();
             if (node.isJoinExpr()) {
