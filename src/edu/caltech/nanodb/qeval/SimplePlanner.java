@@ -3,14 +3,17 @@ package edu.caltech.nanodb.qeval;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 
 import edu.caltech.nanodb.commands.SelectValue;
 import edu.caltech.nanodb.expressions.ColumnValue;
 import edu.caltech.nanodb.expressions.OrderByExpression;
 
 import edu.caltech.nanodb.plans.*;
+
 import edu.caltech.nanodb.relations.ColumnInfo;
 import edu.caltech.nanodb.relations.JoinType;
 import edu.caltech.nanodb.relations.Schema;
@@ -189,13 +192,37 @@ public class SimplePlanner implements Planner {
 
         // Grouping and aggregation.
         AggregateProcessor processor = new AggregateProcessor();
-        // Check that the FROM and WHERE clauses to make sure they don't have
-        // aggregates, because that is invalid.
-        // TODO: scanForAggregates(fromClause.getOnExpression(), processor);
-        scanForAggregates(wherePredicate, processor);
+        // Check the FROM clause to see if there are any aggregate functions,
+        // which is not valid SQL. To do this we must traverse the FromClause
+        // tree.
+        Queue<FromClause> nodesToVisit = new LinkedList<FromClause>();
+        nodesToVisit.add(fromClause);
+        while (nodesToVisit.size() > 0) {
+            FromClause node = nodesToVisit.poll();
+            if (node.isJoinExpr()) {
+                // Add child nodes.
+                FromClause leftChild = node.getLeftChild();
+                FromClause rightChild = node.getRightChild();
+                assert leftChild != null && rightChild != null;
+                nodesToVisit.add(leftChild);
+                nodesToVisit.add(rightChild);
+
+                // If this node is a JOIN .. ON node, then scan it for
+                // aggregate functions.
+                if (node.getConditionType() == FromClause.JoinConditionType.JOIN_ON_EXPR) {
+                    scanForAggregates(node.getOnExpression(), processor);
+                    if (processor.getAggregates().size() > 0) {
+                        throw new IllegalArgumentException("Aggregate functions were found in a JOIN ON clause.");
+                    }
+                }
+            }
+        }
+
+        // Check the WHERE clause for aggregate functions.
         // If there are aggregates found, the SQL is invalid.
+        scanForAggregates(wherePredicate, processor);
         if (processor.getAggregates().size() > 0) {
-            throw new IllegalArgumentException("Aggregate functions were found in either the FROM or WHERE clause.");
+            throw new IllegalArgumentException("Aggregate functions were found in the WHERE clause.");
         }
 
         // Scan the SELECT and HAVING clauses. Replace any aggregate functions
