@@ -4,10 +4,12 @@ package edu.caltech.nanodb.qeval;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import edu.caltech.nanodb.commands.SelectValue;
 import edu.caltech.nanodb.expressions.ColumnValue;
 import edu.caltech.nanodb.expressions.OrderByExpression;
+
 import edu.caltech.nanodb.plans.*;
 import edu.caltech.nanodb.relations.ColumnInfo;
 import edu.caltech.nanodb.relations.JoinType;
@@ -18,6 +20,8 @@ import edu.caltech.nanodb.commands.FromClause;
 import edu.caltech.nanodb.commands.SelectClause;
 
 import edu.caltech.nanodb.expressions.Expression;
+import edu.caltech.nanodb.expressions.AggregateProcessor;
+import edu.caltech.nanodb.expressions.FunctionCall;
 
 import edu.caltech.nanodb.relations.TableInfo;
 import edu.caltech.nanodb.storage.StorageManager;
@@ -142,6 +146,8 @@ public class SimplePlanner implements Planner {
         }
         return fromNode;
     }
+
+
     /**
      * Returns the root of a plan tree suitable for executing the specified
      * query.
@@ -162,26 +168,69 @@ public class SimplePlanner implements Planner {
                     "Not yet implemented:  enclosing queries!");
         }
 
-        // Get the from clause and convert it to a plan tree
+        // Get each part of the query.
         FromClause fromClause = selClause.getFromClause();
-        PlanNode fromNode = fromClauseToNode(fromClause);
-        PlanNode plan = fromNode;
-        Expression predicate = selClause.getWhereExpr();
-        // Insert a predicate if needed
-        if (predicate != null) {
-            plan = new SimpleFilterNode(plan, predicate);
+        Expression wherePredicate = selClause.getWhereExpr();
+        Expression havingPredicate = selClause.getHavingExpr();
+        List<Expression> groupByValues = selClause.getGroupByExprs();
+        List<SelectValue> selectValues = selClause.getSelectValues();
+        List<OrderByExpression> orderByValues = selClause.getOrderByExprs();
+
+        // Convert the query into a plan tree, by adding nodes where
+        // expressions are nontrivial.
+
+        // Starts with a FROM clause.
+        PlanNode plan = fromClauseToNode(fromClause);
+
+        // WHERE predicate
+        if (wherePredicate != null) {
+            plan = new SimpleFilterNode(plan, wherePredicate);
         }
 
-        // If there's a nontrivial project, add a project node.
+        // Grouping and aggregation.
+        AggregateProcessor processor = new AggregateProcessor();
+        // Check that the FROM and WHERE clauses to make sure they don't have
+        // aggregates, because that is invalid.
+        // TODO: scanForAggregates(fromClause.getOnExpression(), processor);
+        scanForAggregates(wherePredicate, processor);
+        // If there are aggregates found, the SQL is invalid.
+        if (processor.getAggregates().size() > 0) {
+            throw new IllegalArgumentException("Aggregate functions were found in either the FROM or WHERE clause.");
+        }
+
+        // Scan the SELECT and HAVING clauses. Replace any aggregate functions
+        // with ColumnValue expressions.
+        for (SelectValue sv : selectValues) {
+            if (!sv.isExpression()) {
+                continue;
+            }
+            Expression e = scanForAggregates(sv.getExpression(), processor);
+            sv.setExpression(e);
+        }
+        havingPredicate = scanForAggregates(havingPredicate, processor);
+
+        // Now make the grouping and aggregation node if either grouping or
+        // aggregation is necessary.
+        Map<String, FunctionCall> aggregates = processor.getAggregates();
+        if (aggregates.size() > 0 || groupByValues.size() > 0) {
+            plan = new HashedGroupAggregateNode(plan, groupByValues, aggregates);
+        }
+
+        // HAVING predicate
+        if (havingPredicate != null) {
+            plan = new SimpleFilterNode(plan, havingPredicate);
+        }
+
+        // SELECT values (generalized project)
         if (!selClause.isTrivialProject()) {
-            plan = new ProjectNode(plan, selClause.getSelectValues());
+            plan = new ProjectNode(plan, selectValues);
         }
 
         // If there's an ORDER BY, add a sort node
-        List<OrderByExpression> orderClause = selClause.getOrderByExprs();
-        if (!orderClause.isEmpty()) {
-            plan = new SortNode(plan, orderClause);
+        if (!orderByValues.isEmpty()) {
+            plan = new SortNode(plan, orderByValues);
         }
+
         // Prepare the plan and return it
         plan.prepare();
         return plan;
@@ -231,5 +280,20 @@ public class SimplePlanner implements Planner {
         SelectNode selectNode = new FileScanNode(tableInfo, predicate);
         selectNode.prepare();
         return selectNode;
+    }
+
+    /**
+     * This helper is a wrapper for scanning expressions for aggregate functions.
+     * The result is stored with the AggregateProcessor object.
+     *
+     * Returns the result node.
+     */
+    private Expression scanForAggregates(Expression e, AggregateProcessor p) {
+        assert p != null;
+        // If the expression is null, don't do anything.
+        if (e == null) {
+            return null;
+        }
+        return e.traverse(p);
     }
 }
