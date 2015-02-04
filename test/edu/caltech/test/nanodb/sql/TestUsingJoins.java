@@ -7,8 +7,10 @@ import org.testng.annotations.Test;
 
 
 /**
- * This class tests the functionality of inner joins,
- * left outer joins, and right outer joins that use the USING clause.
+ * This class tests the functionality of inner joins, left outer joins, and
+ * right outer joins that use the USING clause. In particular, tests focus on
+ * joins where one, none, and both tables are empty. For cases where neither
+ * table is empty, there are rows that join with several in the other table.
  */
 @Test
 public class TestUsingJoins extends SqlTestCase {

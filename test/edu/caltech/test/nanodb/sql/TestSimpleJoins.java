@@ -8,7 +8,9 @@ import org.testng.annotations.Test;
 
 /**
  * This class tests the functionality of cross joins, inner joins with a predicate,
- * left outer joins, and right outer joins.
+ * left outer joins, and right outer joins. In particular, tests focus on
+ * joins where one, none, and both tables are empty. For cases where neither
+ * table is empty, there are rows that join with several in the other table.
  */
 @Test
 public class TestSimpleJoins extends SqlTestCase {
