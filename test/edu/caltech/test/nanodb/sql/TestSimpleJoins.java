@@ -11,9 +11,9 @@ import org.testng.annotations.Test;
  * left outer joins, and right outer joins.
  */
 @Test
-public class TestJoins extends SqlTestCase {
+public class TestSimpleJoins extends SqlTestCase {
 
-    public TestJoins() {
+    public TestSimpleJoins() {
         super("setup_testJoins");
     }
 

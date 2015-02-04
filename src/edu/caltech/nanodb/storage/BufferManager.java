@@ -405,10 +405,10 @@ public class BufferManager {
         }
 
         // Find the session-specific pin-count for the data page.
-        SessionPinCount spc = pinnedBySession.get(dbPage.getPageNo());
+        SessionPinCount spc = pinnedBySession.get(dbPage.getPageNo() + dbPage.getDBFile().hashCode());
         if (spc == null) {
             spc = new SessionPinCount(dbPage);
-            pinnedBySession.put(dbPage.getPageNo(), spc);
+            pinnedBySession.put(dbPage.getPageNo() + dbPage.getDBFile().hashCode(), spc);
         }
 
         // Finally, increment the session's pin-count on this page.
@@ -437,7 +437,7 @@ public class BufferManager {
         }
 
         // Find the session-specific pin-count for the data page.
-        SessionPinCount spc = pinnedBySession.get(dbPage.getPageNo());
+        SessionPinCount spc = pinnedBySession.get(dbPage.getPageNo() + dbPage.getDBFile().hashCode());
         if (spc == null) {
             logger.error(String.format("DBPage %d is being unpinned by " +
                 "session %d, but we have no record of it having been pinned!",
@@ -450,7 +450,7 @@ public class BufferManager {
 
         // If the pin-count went to zero, remove the SessionPinCount object.
         if (spc.pinCount == 0) {
-            pinnedBySession.remove(dbPage.getPageNo());
+            pinnedBySession.remove(dbPage.getPageNo() + dbPage.getDBFile().hashCode());
 
             // If the set of pages pinned by the current session is now empty,
             // remove the set of pages.
@@ -514,7 +514,7 @@ public class BufferManager {
             HashMap<Integer, SessionPinCount> pinnedBySession =
                 sessionPinCounts.get(sessionID);
 
-            SessionPinCount spc = pinnedBySession.remove(pageNo);
+            SessionPinCount spc = pinnedBySession.remove(dbPage.getPageNo() + dbPage.getDBFile().hashCode());
             if (spc != null) {
                 logger.warn(String.format("DBPage %d is being invalidated, " +
                     "but session %d has pinned it %d times", pageNo, sessionID,
