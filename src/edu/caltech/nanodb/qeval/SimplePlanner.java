@@ -2,18 +2,29 @@ package edu.caltech.nanodb.qeval;
 
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 
+import edu.caltech.nanodb.commands.SelectValue;
+import edu.caltech.nanodb.expressions.ColumnValue;
+import edu.caltech.nanodb.expressions.OrderByExpression;
+
+import edu.caltech.nanodb.plans.*;
+
+import edu.caltech.nanodb.relations.ColumnInfo;
+import edu.caltech.nanodb.relations.JoinType;
+import edu.caltech.nanodb.relations.Schema;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.commands.FromClause;
 import edu.caltech.nanodb.commands.SelectClause;
 
 import edu.caltech.nanodb.expressions.Expression;
-
-import edu.caltech.nanodb.plans.FileScanNode;
-import edu.caltech.nanodb.plans.PlanNode;
-import edu.caltech.nanodb.plans.SelectNode;
+import edu.caltech.nanodb.expressions.AggregateProcessor;
+import edu.caltech.nanodb.expressions.FunctionCall;
 
 import edu.caltech.nanodb.relations.TableInfo;
 import edu.caltech.nanodb.storage.StorageManager;
@@ -39,6 +50,111 @@ public class SimplePlanner implements Planner {
         this.storageManager = storageManager;
     }
 
+    /**
+     * Returns the root of a plan tree representing a given FromClause.
+     *
+     * @param fromClause an object describing the relation to query
+     *
+     * @return a plan tree representing the given FromClause
+     *
+     * @throws IOException if an IO error occurs when the planner attempts to
+     *         load schema and indexing information.
+     */
+    private PlanNode fromClauseToNode(FromClause fromClause) throws IOException{
+        PlanNode fromNode;
+        // If no from clause exists, return null.
+        if (fromClause == null){
+            return null;
+        }
+        // Otherwise, switch based on from clause type
+        switch (fromClause.getClauseType()) {
+            // For base tables, file scan and rename if needed
+            case BASE_TABLE:
+                fromNode = makeSimpleSelect(fromClause.getTableName(),
+                        null, null);
+                if (fromClause.isRenamed()) {
+                    fromNode = new RenameNode(fromNode,
+                            fromClause.getResultName());
+                }
+                break;
+            case SELECT_SUBQUERY:
+                // For subqueries, recursively call makePlan and rename
+                fromNode = makePlan(fromClause.getSelectClause(), null);
+                fromNode.prepare();
+                if (fromClause.isRenamed()) {
+                    fromNode = new RenameNode(fromNode, fromClause.getResultName());
+                }
+                break;
+            case JOIN_EXPR:
+                // For joins, evaluate left and right children, then generate the
+                // join node.
+                PlanNode left = fromClauseToNode(fromClause.getLeftChild());
+                PlanNode right = fromClauseToNode(fromClause.getRightChild());
+                FromClause.JoinConditionType condition = fromClause.getConditionType();
+                Expression predicate=  null;
+                boolean needProject = false;
+                List<SelectValue> projectValues = null;
+
+                // For ON clauses, predicate is the OnExpression
+                if (condition == FromClause.JoinConditionType.JOIN_ON_EXPR) {
+                    predicate = fromClause.getOnExpression();
+                }
+                // For other USING and NATURAL JOIN, predicate is
+                // PreparedJoinExpr
+                else if (condition == FromClause.JoinConditionType.JOIN_USING
+                        || condition == FromClause.JoinConditionType.NATURAL_JOIN) {
+                    // USING and NATURAL require a projected schema
+                    needProject = true;
+                    predicate = fromClause.getPreparedJoinExpr();
+                }
+
+                JoinType joinType = fromClause.getJoinType();
+                // Right outer joins can't be done with nested loop, so
+                // convert to project + left join
+                if (joinType == JoinType.RIGHT_OUTER) {
+                    // Calculate project values only if not USING or NATURAL
+                    if (!needProject) {
+                        needProject = true;
+                        // Get project values from the schema
+                        projectValues = new ArrayList<SelectValue>();
+                        Schema schema = fromClause.getPreparedSchema();
+                        for (ColumnInfo colInfo : schema) {
+                            SelectValue selVal = new SelectValue(
+                                    new ColumnValue(colInfo.getColumnName()), null);
+                            projectValues.add(selVal);
+                        }
+                    }
+                    // Switch right and left, then convert to left join
+                    PlanNode temp = left;
+                    left = right;
+                    right = temp;
+                    joinType = JoinType.LEFT_OUTER;
+                }
+                // USING and NATURAL semi/antijoin don't need projects
+                else if (joinType == JoinType.ANTIJOIN ||
+                        joinType == JoinType.SEMIJOIN) {
+                    needProject = false;
+                }
+
+                // Generate the join node
+                fromNode = new NestedLoopsJoinNode(left, right, joinType, predicate);
+                // Project if necessary
+                if (needProject) {
+                    if (projectValues == null) {
+                        projectValues = fromClause.getPreparedSelectValues();
+                    }
+                    fromNode = new ProjectNode(fromNode, projectValues);
+                }
+                break;
+            default:
+                // No other types should occur.
+                logger.error("This should never occur");
+                fromNode = null;
+                break;
+        }
+        return fromNode;
+    }
+
 
     /**
      * Returns the root of a plan tree suitable for executing the specified
@@ -54,30 +170,104 @@ public class SimplePlanner implements Planner {
     @Override
     public PlanNode makePlan(SelectClause selClause,
         List<SelectClause> enclosingSelects) throws IOException {
-        // TODO:  Implement!
-
-        // For HW1, we have a very simple implementation that defers to
-        // makeSimpleSelect() to handle simple SELECT queries with one table,
-        // and an optional WHERE clause.
 
         if (enclosingSelects != null && !enclosingSelects.isEmpty()) {
             throw new UnsupportedOperationException(
-                "Not yet implemented:  enclosing queries!");
+                    "Not yet implemented:  enclosing queries!");
         }
 
-        if (!selClause.isTrivialProject()) {
-            throw new UnsupportedOperationException(
-                "Not yet implemented:  project!");
-        }
-
+        // Get each part of the query.
         FromClause fromClause = selClause.getFromClause();
-        if (!fromClause.isBaseTable()) {
-            throw new UnsupportedOperationException(
-                "Not yet implemented:  joins or subqueries in FROM clause!");
+        Expression wherePredicate = selClause.getWhereExpr();
+        Expression havingPredicate = selClause.getHavingExpr();
+        List<Expression> groupByValues = selClause.getGroupByExprs();
+        List<SelectValue> selectValues = selClause.getSelectValues();
+        List<OrderByExpression> orderByValues = selClause.getOrderByExprs();
+
+        // Convert the query into a plan tree, by adding nodes where
+        // expressions are nontrivial.
+
+        // Starts with a FROM clause.
+        PlanNode plan = fromClauseToNode(fromClause);
+
+        // WHERE predicate
+        if (wherePredicate != null) {
+            plan = new SimpleFilterNode(plan, wherePredicate);
         }
 
-        return makeSimpleSelect(fromClause.getTableName(),
-            selClause.getWhereExpr(), null);
+        // Grouping and aggregation.
+        AggregateProcessor processor = new AggregateProcessor();
+        // Check the FROM clause to see if there are any aggregate functions,
+        // which is not valid SQL. To do this we must traverse the FromClause
+        // tree.
+        Queue<FromClause> nodesToVisit = new LinkedList<FromClause>();
+        if (fromClause != null) {
+            nodesToVisit.add(fromClause);
+        }
+        while (nodesToVisit.size() > 0) {
+            FromClause node = nodesToVisit.poll();
+            if (node.isJoinExpr()) {
+                // Add child nodes.
+                FromClause leftChild = node.getLeftChild();
+                FromClause rightChild = node.getRightChild();
+                assert leftChild != null && rightChild != null;
+                nodesToVisit.add(leftChild);
+                nodesToVisit.add(rightChild);
+
+                // If this node is a JOIN .. ON node, then scan it for
+                // aggregate functions.
+                if (node.getConditionType() == FromClause.JoinConditionType.JOIN_ON_EXPR) {
+                    scanForAggregates(node.getOnExpression(), processor);
+                    if (processor.getAggregates().size() > 0) {
+                        throw new IllegalArgumentException("Aggregate functions were found in a JOIN ON clause.");
+                    }
+                }
+            }
+        }
+
+        // Check the WHERE clause for aggregate functions.
+        // If there are aggregates found, the SQL is invalid.
+        scanForAggregates(wherePredicate, processor);
+        if (processor.getAggregates().size() > 0) {
+            throw new IllegalArgumentException("Aggregate functions were found in the WHERE clause.");
+        }
+
+        // Scan the SELECT and HAVING clauses. Replace any aggregate functions
+        // with ColumnValue expressions.
+        for (SelectValue sv : selectValues) {
+            if (!sv.isExpression()) {
+                continue;
+            }
+            Expression e = scanForAggregates(sv.getExpression(), processor);
+            sv.setExpression(e);
+        }
+        havingPredicate = scanForAggregates(havingPredicate, processor);
+
+        // Now make the grouping and aggregation node if either grouping or
+        // aggregation is necessary.
+        Map<String, FunctionCall> aggregates = processor.getAggregates();
+        if (aggregates.size() > 0 || groupByValues.size() > 0) {
+            plan = new HashedGroupAggregateNode(plan, groupByValues, aggregates);
+        }
+
+        // HAVING predicate
+        if (havingPredicate != null) {
+            plan = new SimpleFilterNode(plan, havingPredicate);
+        }
+
+        // SELECT values (generalized project)
+        if (!selClause.isTrivialProject()) {
+            plan = new ProjectNode(plan, selectValues);
+        }
+
+        // If there's an ORDER BY, add a sort node
+        if (!orderByValues.isEmpty()) {
+            plan = new SortNode(plan, orderByValues);
+        }
+
+        // Prepare the plan and return it
+        plan.prepare();
+        return plan;
     }
 
 
@@ -124,5 +314,20 @@ public class SimplePlanner implements Planner {
         SelectNode selectNode = new FileScanNode(tableInfo, predicate);
         selectNode.prepare();
         return selectNode;
+    }
+
+    /**
+     * This helper is a wrapper for scanning expressions for aggregate functions.
+     * The result is stored with the AggregateProcessor object.
+     *
+     * Returns the result node.
+     */
+    private Expression scanForAggregates(Expression e, AggregateProcessor p) {
+        assert p != null;
+        // If the expression is null, don't do anything.
+        if (e == null) {
+            return null;
+        }
+        return e.traverse(p);
     }
 }

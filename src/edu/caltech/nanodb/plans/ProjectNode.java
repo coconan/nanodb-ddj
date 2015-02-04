@@ -266,12 +266,16 @@ public class ProjectNode extends PlanNode {
         if (done)
             return null;
 
+        Tuple lastTuple = currentTuple;
         if (leftChild != null) {
             // Advance the left child to the next tuple.  If there are no more
             // tuples, the projection process is over - set the done flag.
             advanceCurrentTuple();
             if (currentTuple == null)
                 done = true;
+
+            // If this is a nontrivial projection, the last tuple can be unpinned
+            if (!isTrivial() && lastTuple != null) lastTuple.unpin();
         }
         else {
             // Since we are here, we know that done == false and we haven't
@@ -385,7 +389,6 @@ public class ProjectNode extends PlanNode {
                     "Select-value doesn't specify a value");
             }
         }
-
         return newTuple;
     }
 

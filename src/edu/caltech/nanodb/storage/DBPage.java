@@ -190,10 +190,10 @@ public class DBPage implements Pinnable {
                 "pinCount is not positive (value is " + pinCount + ")");
         }
 
+        pinCount--;
+
         // To facilitate debugging of pinned-page leaks!
         bufferManager.recordPageUnpinned(this);
-
-        pinCount--;
     }
 
 

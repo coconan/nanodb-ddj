@@ -1,4 +1,37 @@
 #================================================================================
+# JOINS
+#
+
+# This setup SQL is used to test joins
+setup_testJoins = \
+    CREATE TABLE test_joins1 ( \
+        a INTEGER, \
+        b INTEGER \
+    ); \
+    CREATE TABLE test_joins2 ( \
+        a INTEGER, \
+        c INTEGER \
+    ); \
+    CREATE TABLE test_joins3 ( \
+        a INTEGER, \
+        b INTEGER \
+    ); \
+    CREATE TABLE test_joins4 ( \
+        a INTEGER, \
+        c INTEGER \
+    ); \
+    INSERT INTO test_joins1 VALUES ( 0, NULL ); \
+    INSERT INTO test_joins1 VALUES ( 0, 10 ); \
+    INSERT INTO test_joins1 VALUES ( 2, 20 ); \
+    INSERT INTO test_joins1 VALUES ( 3, 30 ); \
+    INSERT INTO test_joins1 VALUES ( 4, NULL ); \
+    INSERT INTO test_joins2 VALUES ( 0, NULL ); \
+    INSERT INTO test_joins2 VALUES ( 0, 10 ); \
+    INSERT INTO test_joins2 VALUES ( 0, 20 ); \
+    INSERT INTO test_joins2 VALUES ( 1, 30 ); \
+    INSERT INTO test_joins2 VALUES ( 1, 40 );
+
+#================================================================================
 # SIMPLE SELECTS AND PROJECTS
 #
 
