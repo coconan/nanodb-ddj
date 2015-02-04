@@ -127,6 +127,11 @@ public class SimplePlanner implements Planner {
                     right = temp;
                     joinType = JoinType.LEFT_OUTER;
                 }
+                // USING and NATURAL semi/antijoin don't need projects
+                else if (joinType == JoinType.ANTIJOIN ||
+                        joinType == JoinType.SEMIJOIN) {
+                    needProject = false;
+                }
 
                 // Generate the join node
                 fromNode = new NestedLoopsJoinNode(left, right, joinType, predicate);
