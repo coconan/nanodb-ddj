@@ -60,10 +60,10 @@ public class SimplePlanner implements Planner {
      * @throws IOException if an IO error occurs when the planner attempts to
      *         load schema and indexing information.
      */
-    private PlanNode fromClauseToNode(FromClause fromClause) throws IOException{
+    private PlanNode fromClauseToNode(FromClause fromClause) throws IOException {
         PlanNode fromNode;
         // If no from clause exists, return null.
-        if (fromClause == null){
+        if (fromClause == null) {
             return null;
         }
         // Otherwise, switch based on from clause type
