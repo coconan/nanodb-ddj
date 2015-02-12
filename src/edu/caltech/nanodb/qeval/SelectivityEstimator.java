@@ -3,6 +3,7 @@ package edu.caltech.nanodb.qeval;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Objects;
 
 import edu.caltech.nanodb.expressions.ArithmeticOperator;
 import edu.caltech.nanodb.expressions.BooleanOperator;
@@ -147,17 +148,33 @@ public class SelectivityEstimator {
 
         float selectivity = 1.0f;
 
+        ArrayList<Float> selectivities = new ArrayList<Float>();
+        for (int i = 0; i < bool.getNumTerms(); i++) {
+            selectivities.add(estimateSelectivity(bool.getTerm(i),
+                    exprSchema, stats));
+        }
+
         switch (bool.getType()) {
         case AND_EXPR:
-            // TODO:  Compute selectivity of AND expression.
+            // Assume independence and find the probability of all predicates
+            // being satisfied
+            for (float s : selectivities) {
+                selectivity *= s;
+            }
             break;
 
         case OR_EXPR:
-            // TODO:  Compute selectivity of OR expression.
+            // Find the probability that no predicate is satisfied
+            for (float s : selectivities) {
+                selectivity *= (1 - s);
+            }
+            // The complement of this is our selectivity
+            selectivity = 1 - selectivity;
             break;
 
         case NOT_EXPR:
-            // TODO:  Compute selectivity of NOT expression.
+            // NOT expressions must have only one term
+            selectivity = 1 - selectivities.get(0);
             break;
 
         default:
@@ -269,11 +286,17 @@ public class SelectivityEstimator {
         case NOT_EQUALS:
             // Compute the equality value.  Then, if inequality, invert the
             // result.
-
-            // TODO:  Compute the selectivity.  Note that the ColumnStats type
-            //        will return special values to indicate "unknown" stats;
-            //        your code should detect when this is the case, and fall
-            //        back on the default selectivity.
+            int numDistinct = colStats.getNumUniqueValues();
+            // If number of distinct values is unknown, use default
+            if (numDistinct == -1) {
+                break;
+            }
+            // Otherwise, assume uniform distribution
+            selectivity = 1.0f / numDistinct;
+            // Invert if NOT_EQUALS
+            if (compType == CompareOperator.Type.NOT_EQUALS) {
+                selectivity = 1 - selectivity;
+            }
 
             break;
 
@@ -287,10 +310,19 @@ public class SelectivityEstimator {
 
             if (typeSupportsCompareEstimates(sqlType) &&
                 colStats.hasDifferentMinMaxValues()) {
+                // Get min/max values
+                Object min = colStats.getMinValue();
+                Object max = colStats.getMaxValue();
+                // Use default if either is unknown
+                if (min == null || max == null) {
+                    break;
+                }
 
-                // TODO:  Compute the selectivity.  The if-condition ensures
-                //        that you will only compute selectivities if the type
-                //        supports it, and if there are valid stats.
+                // Compute selectivity
+                selectivity = computeRatio(value, max, min, max);
+                if (compType == CompareOperator.Type.LESS_THAN) {
+                    selectivity = 1 - selectivity;
+                }
             }
 
             break;
@@ -305,9 +337,19 @@ public class SelectivityEstimator {
 
             if (typeSupportsCompareEstimates(sqlType) &&
                 colStats.hasDifferentMinMaxValues()) {
+                // Get min/max values
+                Object min = colStats.getMinValue();
+                Object max = colStats.getMaxValue();
+                // Use default if either is unknown
+                if (min == null || max == null) {
+                    break;
+                }
 
-                // TODO:  Compute the selectivity.  Watch out for cut-and-paste
-                //        bugs...
+                // Compute selectivity
+                selectivity = computeRatio(min, value, min, max);
+                if (compType == CompareOperator.Type.GREATER_THAN) {
+                    selectivity = 1 - selectivity;
+                }
             }
 
             break;
@@ -355,10 +397,14 @@ public class SelectivityEstimator {
         ColumnStats colOneStats = stats.get(colOneIndex);
         ColumnStats colTwoStats = stats.get(colTwoIndex);
 
-        // TODO:  Compute the selectivity.  Note that the ColumnStats type
-        //        will return special values to indicate "unknown" stats;
-        //        your code should detect when this is the case, and fall
-        //        back on the default selectivity.
+        // Get distinct values
+        int distinctOne = colOneStats.getNumUniqueValues();
+        int distinctTwo = colTwoStats.getNumUniqueValues();
+
+        // If these are known, calculate selectivity
+        if (distinctOne != -1 && distinctTwo != -1) {
+            selectivity = 1 / ((float) Math.max(distinctOne, distinctTwo));
+        }
 
         return selectivity;
     }
