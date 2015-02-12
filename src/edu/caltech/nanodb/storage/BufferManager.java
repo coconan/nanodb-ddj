@@ -1,6 +1,7 @@
 package edu.caltech.nanodb.storage;
 
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,13 +14,14 @@ import java.util.Map;
 
 import org.apache.log4j.Logger;
 
+import edu.caltech.nanodb.client.SessionState;
+
 import edu.caltech.nanodb.expressions.TypeCastException;
+
 import edu.caltech.nanodb.server.properties.PropertyHandler;
 import edu.caltech.nanodb.server.properties.PropertyRegistry;
 import edu.caltech.nanodb.server.properties.ReadOnlyPropertyException;
 import edu.caltech.nanodb.server.properties.UnrecognizedPropertyException;
-
-import edu.caltech.nanodb.client.SessionState;
 
 
 /**
@@ -50,6 +52,39 @@ public class BufferManager {
 
     /** The default page-cache policy is LRU. */
     public static final String DEFAULT_PAGECACHE_POLICY = "lru";
+
+
+    private static class DBPageID {
+        private File file;
+
+        private int pageNo;
+
+        public DBPageID(File file, int pageNo) {
+            this.file = file;
+            this.pageNo = pageNo;
+        }
+
+        public DBPageID(DBPage dbPage) {
+            this(dbPage.getDBFile().getDataFile(), dbPage.getPageNo());
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj instanceof DBPageID) {
+                DBPageID other = (DBPageID) obj;
+                return file.equals(other.file) && pageNo == other.pageNo;
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            int hash = 17;
+            hash = hash * 37 + file.hashCode();
+            hash = hash * 37 + pageNo;
+            return hash;
+        }
+    }
 
 
     /**
@@ -171,9 +206,9 @@ public class BufferManager {
 
 
     /**
-     * This collection maps session IDs to the pages that each session has
-     * pinned, so that we can forcibly unpin pages used by a given session
-     * when the session is done with the current command.
+     * This collection maps session IDs to the files and pages that each
+     * session has pinned, so that we can forcibly unpin pages used by a
+     * given session when the session is done with the current command.
      */
     private HashMap<Integer, HashMap<Integer, SessionPinCount>> sessionPinCounts;
 
@@ -301,9 +336,13 @@ public class BufferManager {
 
 
     /**
+     * This method attempts to allocate a buffer of the specified size,
+     * possibly evicting some existing buffers in order to make space.
      *
-     * @param size
-     * @return
+     * @param size the size of the buffer to allocate
+     *
+     * @return an array of bytes, of the specified size
+     *
      * @throws IOException if a dirty page must be evicted from the buffer
      *         manager, and an IO error occurred while writing the page to
      *         persistent storage.
@@ -421,7 +460,7 @@ public class BufferManager {
      * does not actually unpin the page; it is presumed that the page will be
      * unpinned after this call.
      *
-     * @param dbPage
+     * @param dbPage the page that was unpinned
      */
     public void recordPageUnpinned(DBPage dbPage) {
         int sessionID = SessionState.get().getSessionID();
