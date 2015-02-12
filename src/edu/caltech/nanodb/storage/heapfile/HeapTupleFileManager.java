@@ -46,15 +46,8 @@ public class HeapTupleFileManager implements TupleFileManager {
             dbFile, schema.numColumns()));
 
         TableStats stats = new TableStats(schema.numColumns());
-
-        // Set the first non full page value (initializes list of nonfull pages).
-        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
-        int firstNonFullPage = 0;
-        HeaderPage.setFirstNonFullPage(headerPage, firstNonFullPage);
-        headerPage.unpin();
-
         HeapTupleFile tupleFile = new HeapTupleFile(storageManager, this,
-                dbFile, schema, stats, firstNonFullPage);
+                dbFile, schema, stats);
         saveMetadata(tupleFile);
         return tupleFile;
     }
@@ -84,9 +77,7 @@ public class HeapTupleFileManager implements TupleFileManager {
         StatsWriter statsWriter = new StatsWriter();
         TableStats stats = statsWriter.readTableStats(hpReader, schema);
 
-        headerPage.unpin();
-        return new HeapTupleFile(storageManager, this, dbFile, schema, stats,
-                firstNonFullPage);
+        return new HeapTupleFile(storageManager, this, dbFile, schema, stats);
     }
 
 
