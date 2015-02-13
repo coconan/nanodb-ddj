@@ -170,10 +170,10 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
         // For expected tuple size, the sum of the averages is a good estimate.
         float tupleSize = leftChild.cost.tupleSize + rightChild.cost.tupleSize;
         // Use worst case as upper bound.
-        long numBlockIOs = (long) (leftChild.cost.numBlockIOs + leftChild.cost.numTuples * rightChild.cost.numBlockIOs):
+        long numBlockIOs = (long) (leftChild.cost.numBlockIOs + leftChild.cost.numTuples * rightChild.cost.numBlockIOs);
         // Since we iterate through each pair, it is just the product of the numbers of tuples.
         float cpuCostPerTuple = 1.0f;
-        float cpuCost = cpuCostPerTuple * leftChild.cost.numTuples * rightChild.cost.numTuples;
+        float cpuCost = cpuCostPerTuple * leftChild.cost.numTuples * rightChild.cost.numTuples + leftChild.cost.cpuCost + rightChild.cost.cpuCost;
         // This depends on what kind of join we're doing.
         float numTuples;
         float selectivity = SelectivityEstimator.estimateSelectivity(predicate, schema, stats);
