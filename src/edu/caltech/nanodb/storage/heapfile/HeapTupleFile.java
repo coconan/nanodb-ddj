@@ -67,8 +67,12 @@ public class HeapTupleFile implements TupleFile {
     private DBFile dbFile;
 
 
-    public HeapTupleFile(StorageManager storageManager, HeapTupleFileManager heapFileManager, DBFile dbFile,
-                         TableSchema schema, TableStats stats) {
+    public HeapTupleFile(StorageManager storageManager,
+                         HeapTupleFileManager heapFileManager,
+                         DBFile dbFile,
+                         TableSchema schema,
+                         TableStats stats,
+                         int firstNonFullPage) {
         if (storageManager == null)
             throw new IllegalArgumentException("storageManager cannot be null");
 
@@ -89,6 +93,7 @@ public class HeapTupleFile implements TupleFile {
         this.dbFile = dbFile;
         this.schema = schema;
         this.stats = stats;
+        this.firstNonFullPage = firstNonFullPage;
     }
 
 
