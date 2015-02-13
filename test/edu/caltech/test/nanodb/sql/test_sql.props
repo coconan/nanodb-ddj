@@ -1,4 +1,25 @@
 #================================================================================
+# LIMIT/OFFSET
+#
+
+# This setup SQL is used to test limit/offset
+setup_limitoffset = \
+    CREATE TABLE test_limitoffset ( \
+        a INTEGER, \
+        b VARCHAR(10) \
+    ); \
+    INSERT INTO test_limitoffset VALUES ( 0, 'aaa' ); \
+    INSERT INTO test_limitoffset VALUES ( 1, 'bbb' ); \
+    INSERT INTO test_limitoffset VALUES ( 2, 'ccc' ); \
+    INSERT INTO test_limitoffset VALUES ( 3, 'ddd' ); \
+    INSERT INTO test_limitoffset VALUES ( 4, 'eee' ); \
+    INSERT INTO test_limitoffset VALUES ( 5, 'fff' ); \
+    INSERT INTO test_limitoffset VALUES ( 6, 'ggg' ); \
+    INSERT INTO test_limitoffset VALUES ( 7, 'hhh' ); \
+    INSERT INTO test_limitoffset VALUES ( 8, 'iii' ); \
+    INSERT INTO test_limitoffset VALUES ( 9, 'jjj' );
+
+#================================================================================
 # JOINS
 #
 
