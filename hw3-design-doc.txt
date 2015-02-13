@@ -71,26 +71,38 @@ have analyzed all of the tables in that schema.
 
 D1.  Paste the output of running:  EXPLAIN SELECT * FROM cities;
      Do not include debug lines, just the output of the command itself.
+Explain Plan:
+    FileScan[table:  CITIES] cost=[tuples=254.0, tupSize=23.8, cpuCost=254.0, blockIOs=1]
+
+    Estimated 254.000000 tuples with average size 23.787401
+    Estimated number of block IOs:  1
+
 
 D2.  What is the estimated number of tuples that will be produced by each
      of these queries:
 
      SELECT * FROM cities WHERE population > 1000000;
-
-     <paste output here>
+     Estimated 225.582245 tuples with average size 23.787401
 
      SELECT * FROM cities WHERE population > 5000000;
-
-     <paste output here>
+     Estimated 99.262199 tuples with average size 23.787401
 
      SELECT * FROM cities WHERE population > 8000000;
+     Estimated 4.522162 tuples with average size 23.787401
 
-     <paste output here>
 
      How many tuples does each query produce?
+     9, 1, and 1 for 1000000, 5000000, and 8000000, respectively. 
 
      Briefly explain the difference between the estimated number of tuples
      and the actual number of tuples for these queries.
+
+     We make the assumption that population is uniformly distributed
+     between the min and max values. This is clearly not true. There are
+     many more cities with low population than high population, so the
+     true number of tuples is much lower than we expect. Instead, there
+     are just a few outliers that pop up when we run these queries.
+
 
 D3.  Paste the output of running these commands:
 
@@ -119,6 +131,7 @@ D4.  The assignment gives this example "slow" query:
            state_name = 'Oregon' AND property_costs > 500000;
 
      How long does this query take to run, in seconds?
+     
 
      Include the EXPLAIN output for the above query here.
 
