@@ -186,7 +186,6 @@ public class SimplePlanner implements Planner {
 
         // Convert the query into a plan tree, by adding nodes where
         // expressions are nontrivial.
-
         // Starts with a FROM clause.
         PlanNode plan = fromClauseToNode(fromClause);
 
@@ -263,6 +262,11 @@ public class SimplePlanner implements Planner {
         // If there's an ORDER BY, add a sort node
         if (!orderByValues.isEmpty()) {
             plan = new SortNode(plan, orderByValues);
+        }
+
+        // If the limit and offset are nonzero, add a limit/offset node
+        if (selClause.getLimit() != 0 || selClause.getOffset() != 0) {
+            plan = new LimitOffsetNode(plan, selClause.getLimit(), selClause.getOffset());
         }
 
         // Prepare the plan and return it
