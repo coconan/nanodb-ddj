@@ -119,7 +119,7 @@ D2.  What is the estimated number of tuples that will be produced by each
 
 
      How many tuples does each query produce?
-     9, 1, and 1 for 1000000, 5000000, and 8000000, respectively. 
+     9, 1, and 1 for 1000000, 5000000, and 8000000, respectively.
 
      Briefly explain the difference between the estimated number of tuples
      and the actual number of tuples for these queries.
@@ -137,17 +137,42 @@ D3.  Paste the output of running these commands:
      WHERE stores.city_id = cities.city_id AND
            cities.population > 1000000;
 
-     <paste output here>
+Explain Plan:
+    Project[values:  [STORES.STORE_ID]] cost=[tuples=1776.2, tupSize=36.8, cpuCost=1020030.3, blockIOs=2004]
+        SimpleFilter[pred:  STORES.CITY_ID == CITIES.CITY_ID AND CITIES.POPULATION > 1000000] cost=[tuples=1776.2, tupSize=36.8, cpuCost=1018254.0, blockIOs=2004]
+            NestedLoops[no pred] cost=[tuples=508000.0, tupSize=36.8, cpuCost=510254.0, blockIOs=2004]
+                FileScan[table:  STORES] cost=[tuples=2000.0, tupSize=13.0, cpuCost=2000.0, blockIOs=4]
+                FileScan[table:  CITIES] cost=[tuples=254.0, tupSize=23.8, cpuCost=254.0, blockIOs=1]
+
+Estimated 1776.238159 tuples with average size 36.787399
+Estimated number of block IOs:  2004
+
 
      EXPLAIN SELECT store_id FROM stores JOIN
                     (SELECT city_id FROM cities
                      WHERE population > 1000000) AS big_cities
                     ON stores.city_id = big_cities.city_id;
 
-     <paste output here>
+Explain Plan:
+    Project[values:  [STORES.STORE_ID]] cost=[tuples=1776.2, tupSize=36.8, cpuCost=455674.3, blockIOs=2004]
+        NestedLoops[pred:  STORES.CITY_ID == BIG_CITIES.CITY_ID] cost=[tuples=1776.2, tupSize=36.8, cpuCost=453898.1, blockIOs=2004]
+            FileScan[table:  STORES] cost=[tuples=2000.0, tupSize=13.0, cpuCost=2000.0, blockIOs=4]
+            Rename[resultTableName=BIG_CITIES] cost=[tuples=225.6, tupSize=23.8, cpuCost=733.6, blockIOs=1]
+                Project[values:  [CITIES.CITY_ID]] cost=[tuples=225.6, tupSize=23.8, cpuCost=733.6, blockIOs=1]
+                    SimpleFilter[pred:  CITIES.POPULATION > 1000000] cost=[tuples=225.6, tupSize=23.8, cpuCost=508.0, blockIOs=1]
+                        FileScan[table:  CITIES] cost=[tuples=254.0, tupSize=23.8, cpuCost=254.0, blockIOs=1]
+
+Estimated 1776.238159 tuples with average size 36.787399
+Estimated number of block IOs:  2004
 
      The estimated number of tuples produced should be the same, but the
      costs should be different.  Explain why.
+
+     The costs are different because the first one does a cross join
+     (generating the full set of tuples) and then applies a select predicate to
+     the result of the cross join. This generates many more temporary rows than
+     filtering as soon as possible and using a theta join instead of a cross
+     join.
 
 D4.  The assignment gives this example "slow" query:
 
@@ -158,15 +183,51 @@ D4.  The assignment gives this example "slow" query:
            state_name = 'Oregon' AND property_costs > 500000;
 
      How long does this query take to run, in seconds?
-     
+
+     This query took about 15 seconds to run (my computer has a SSD).
 
      Include the EXPLAIN output for the above query here.
 
-     <paste output here>
+Explain Plan:
+    Project[values:  [STORES.STORE_ID, STORES.PROPERTY_COSTS]] cost=[tuples=19.6, tupSize=52.5, cpuCost=52326324.0, blockIOs=510004]
+        SimpleFilter[pred:  STORES.CITY_ID == CITIES.CITY_ID AND CITIES.STATE_ID == STATES.STATE_ID AND STATES.STATE_NAME == 'Oregon' AND STORES.PROPERTY_COSTS > 500000] cost=[tuples=19.6, tupSize=52.5, cpuCost=52326304.0, blockIOs=510004]
+            NestedLoops[no pred] cost=[tuples=25908000.0, tupSize=52.5, cpuCost=26418304.0, blockIOs=510004]
+                NestedLoops[no pred] cost=[tuples=508000.0, tupSize=36.8, cpuCost=510254.0, blockIOs=2004]
+                    FileScan[table:  STORES] cost=[tuples=2000.0, tupSize=13.0, cpuCost=2000.0, blockIOs=4]
+                    FileScan[table:  CITIES] cost=[tuples=254.0, tupSize=23.8, cpuCost=254.0, blockIOs=1]
+                FileScan[table:  STATES] cost=[tuples=51.0, tupSize=15.7, cpuCost=51.0, blockIOs=1]
+
+Estimated 19.588217 tuples with average size 52.454067
+Estimated number of block IOs:  510004
 
      How would you rewrite this query (e.g. using ON clauses, subqueries
      in the FROM clause, etc.) to be as optimal as possible?  Also include
      the result of EXPLAINing your query.
+
+    SELECT store_id, property_costs
+    FROM cities
+      NATURAL JOIN (SELECT * FROM states WHERE state_name = 'Oregon') AS sta
+      NATURAL JOIN (SELECT * FROM stores WHERE property_costs > 500000) AS sto;
+
+Explain Plan:
+    Project[values:  [STO.STORE_ID, STO.PROPERTY_COSTS]] cost=[tuples=19.6, tupSize=52.5, cpuCost=9629.6, blockIOs=274]
+        Project[values:  [CITIES.CITY_ID AS CITY_ID, STATE_ID, CITIES.CITY_NAME, CITIES.POPULATION, STA.STATE_NAME, STO.STORE_ID, STO.PROPERTY_COSTS]] cost=[tuples=19.6, tupSize=52.5, cpuCost=9610.0, blockIOs=274]
+            NestedLoops[pred:  CITIES.CITY_ID == STO.CITY_ID] cost=[tuples=19.6, tupSize=52.5, cpuCost=9590.4, blockIOs=274]
+                Project[values:  [CITIES.STATE_ID AS STATE_ID, CITIES.CITY_ID, CITIES.CITY_NAME, CITIES.POPULATION, STA.STATE_NAME]] cost=[tuples=5.0, tupSize=39.5, cpuCost=615.0, blockIOs=255]
+                    NestedLoops[pred:  CITIES.STATE_ID == STA.STATE_ID] cost=[tuples=5.0, tupSize=39.5, cpuCost=610.0, blockIOs=255]
+                        FileScan[table:  CITIES] cost=[tuples=254.0, tupSize=23.8, cpuCost=254.0, blockIOs=1]
+                        Rename[resultTableName=STA] cost=[tuples=1.0, tupSize=15.7, cpuCost=102.0, blockIOs=1]
+                            SimpleFilter[pred:  STATES.STATE_NAME == 'Oregon'] cost=[tuples=1.0, tupSize=15.7, cpuCost=102.0, blockIOs=1]
+                                FileScan[table:  STATES] cost=[tuples=51.0, tupSize=15.7, cpuCost=51.0, blockIOs=1]
+                Rename[resultTableName=STO] cost=[tuples=999.0, tupSize=13.0, cpuCost=4000.0, blockIOs=4]
+                    SimpleFilter[pred:  STORES.PROPERTY_COSTS > 500000] cost=[tuples=999.0, tupSize=13.0, cpuCost=4000.0, blockIOs=4]
+                        FileScan[table:  STORES] cost=[tuples=2000.0, tupSize=13.0, cpuCost=2000.0, blockIOs=4]
+
+Estimated 19.588217 tuples with average size 52.454067
+Estimated number of block IOs:  274
+
+This query takes about 0.1 seconds to evaluate.
+
 
 E:  Extra Credit [OPTIONAL]
 ---------------------------
@@ -186,7 +247,7 @@ E1: LimitOffsetNode and tests
 
     Implemented LimitOffsetNode, TestLimitOffset, and added planning for limit/offset
     to SimplePlanner. Database now supports the LIMIT and OFFSET clause, allowing
-    querys to scroll through lengthy results a few at a time. 
+    querys to scroll through lengthy results a few at a time.
 
     A few simple test causes test that LIMIT clause reduces output as expected,
     that offset properly starts at the offset, and that offset going past the end
