@@ -59,9 +59,36 @@ C:  Plan Costing Implementation
 C1.  Briefly describe how you estimate the number of tuples and the cost
      of a file-scan plan node.  What factors does your cost include?
 
+    - The number of tuples is the selectivity times the number of tuples in the
+      table.
+    - The CPU cost is the number of tuples in the table, since it has to iterate
+      through every tuple.
+    - Disk IOs is the number of blocks in the table.
+    - Expected tuple size is the average tuple size in the table.
+
 C2.  Same question as for C1, but for simple filter nodes.
 
+    - The number of tuples is the selectivity times the number of tuples in the
+      child node.
+    - The CPU cost is the number of tuples in the child node plus the CPU cost
+      of the child node (since it has to iterate through each tuple).
+    - Disk IOs is the child's disk cost, since we assume everything fits in memory.
+    - Expected tuple size is the same as the child's expected tuple size.
+
 C3.  Same question as for C1, but for nested-loop joins.
+
+    - The CPU cost is the number of tuples it must iterate through, so it is
+      n_r * n_s plus the sum of the child CPU costs.
+    - The disk IOs is the sum of the child disk IOs, since we assume everything
+      is contained in memory.
+    - The expected tuple size is the sum of the child tuple sizes.
+    - The number of tuples depends on the join type:
+      - For a cross join, it is just n_r * n_s
+      - For an inner join, it is selectivity * n_r * n_s
+      - For a left outer join, it is the inner join + n_r (we only need a
+        reasonable upper bound)
+      - For a semijoin or antijoin, it is just n_r, since that is an upper bound
+        to the number of tuples returned.
 
 D:  Costing SQL Queries
 -----------------------
@@ -150,7 +177,7 @@ in any way (including if you hate everything about the assignment and
 databases in general, or Donnie and the TAs in particular).
 
 NOTE:  If you wish to give anonymous feedback, a similar survey will be
-       made available on the Moodle.  
+       made available on the Moodle.
 
 F1.  How many hours total did your team spend on this assignment?
      (That is, the sum of each teammate's time spent on the assignment.)
