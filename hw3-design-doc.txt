@@ -142,6 +142,16 @@ E<i>:  <one-line description>
 
      <brief summary of test-cases that demonstrate/exercise your extra work>
 
+E1: LimitOffsetNode and tests
+
+    Implemented LimitOffsetNode, TestLimitOffset, and added planning for limit/offset
+    to SimplePlanner. Database now supports the LIMIT and OFFSET clause, allowing
+    querys to scroll through lengthy results a few at a time. 
+
+    A few simple test causes test that LIMIT clause reduces output as expected,
+    that offset properly starts at the offset, and that offset going past the end
+    of the table does not cause errors.
+
 F:  Feedback [OPTIONAL]
 -----------------------
 
