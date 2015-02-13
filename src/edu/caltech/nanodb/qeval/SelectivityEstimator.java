@@ -118,6 +118,10 @@ public class SelectivityEstimator {
             CompareOperator comp = (CompareOperator) expr;
             selectivity = estimateCompareSelectivity(comp, exprSchema, stats);
         }
+        else if (expr == null) {
+            // There is no selection predicate, so everything is selected.
+            selectivity = 1.0f;
+        }
 
         return selectivity;
     }
