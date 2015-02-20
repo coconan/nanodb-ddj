@@ -4,6 +4,8 @@ package edu.caltech.nanodb.plans;
 import java.io.IOException;
 import java.util.List;
 
+import edu.caltech.nanodb.qeval.PlanCost;
+import edu.caltech.nanodb.qeval.SelectivityEstimator;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.expressions.Expression;
@@ -164,8 +166,45 @@ public class NestedLoopsJoinNode extends ThetaJoinNode {
 
         if (joinType == LEFT_OUTER) rightNulls = new TupleLiteral(rightSchema.numColumns());
 
-        // TODO:  Implement the rest
-        cost = null;
+        // Compute estimated costs.
+        // For expected tuple size, the sum of the averages is a good estimate.
+        float tupleSize = leftChild.cost.tupleSize + rightChild.cost.tupleSize;
+        // Use worst case as upper bound.
+        long numBlockIOs = (long) (leftChild.cost.numBlockIOs + leftChild.cost.numTuples * rightChild.cost.numBlockIOs);
+        // Since we iterate through each pair, it is just the product of the numbers of tuples.
+        float cpuCostPerTuple = 1.0f;
+        float cpuCost = cpuCostPerTuple * leftChild.cost.numTuples * rightChild.cost.numTuples + leftChild.cost.cpuCost + rightChild.cost.cpuCost;
+        // This depends on what kind of join we're doing.
+        float numTuples;
+        float selectivity = SelectivityEstimator.estimateSelectivity(predicate, schema, stats);
+        switch (joinType) {
+            case CROSS:
+                // n_r * n_s
+                numTuples = leftChild.cost.numTuples * rightChild.cost.numTuples;
+                break;
+            case INNER:
+                // Selectivity accounts for predicate type, so this is just
+                // selectivity * n_r * n_s
+                numTuples = selectivity * leftChild.cost.numTuples * rightChild.cost.numTuples;
+                break;
+            case LEFT_OUTER:
+                // Worst case is the inner join plus n_r
+                numTuples = selectivity * leftChild.cost.numTuples * rightChild.cost.numTuples + leftChild.cost.numTuples;
+                break;
+            case SEMIJOIN:
+            case ANTIJOIN:
+                // For semijoin and antijoin, we just use n_r as a worst case estimate.
+                numTuples = leftChild.cost.numTuples;
+                break;
+            // RIGHT_OUTER and FULL_OUTER should never happen (not supported).
+            case RIGHT_OUTER:
+            case FULL_OUTER:
+            default:
+                throw new IllegalArgumentException("Unable to execute nested loop join of type " +
+                        String.valueOf(joinType));
+        }
+
+        cost = new PlanCost(numTuples, tupleSize, cpuCost, numBlockIOs);
     }
 
 

@@ -113,8 +113,20 @@ public class SimpleFilterNode extends SelectNode {
         schema = leftChild.getSchema();
         ArrayList<ColumnStats> childStats = leftChild.getStats();
 
-        // TODO:  Compute the cost of the plan node!
-        cost = null;
+        // Estimated number of tuples is the selectivity times the number of
+        // rows the child returns.
+        float selectivity = SelectivityEstimator.estimateSelectivity(predicate, schema, childStats);
+        float numTuples = selectivity * leftChild.cost.numTuples;
+
+        // The CPU cost is the total number of rows it needs to look at.
+        float cpuCostPerTuple = 1.0f;
+        float cpuCost = cpuCostPerTuple * leftChild.cost.numTuples + leftChild.cost.cpuCost;
+
+        // Tuple size and number of blocking IOs is just what the child produces.
+        float tupleSize = leftChild.cost.tupleSize;
+        long numBlockIOs = leftChild.cost.numBlockIOs;
+
+        cost = new PlanCost(numTuples, tupleSize, cpuCost, numBlockIOs);
 
         // TODO:  We should also update the table statistics based on the
         //        predicate, but that's too complicated, so we'll leave them

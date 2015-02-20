@@ -173,8 +173,22 @@ public class FileScanNode extends SelectNode {
         TableStats tableStats = tupleFile.getStats();
         stats = tableStats.getAllColumnStats();
 
-        // TODO:  Compute the cost of the plan node!
-        cost = null;
+        // Estimated number of tuples is the selectivity times the number of
+        // tuples in the table.
+        float selectivity = SelectivityEstimator.estimateSelectivity(predicate, schema, stats);
+        float numTuples = selectivity * tableStats.numTuples;
+
+        // Estimated CPU cost is the number of tuples it needs to scan through (all of them).
+        float cpuCostPerTuple = 1.0f;
+        float cpuCost = cpuCostPerTuple * tableStats.numTuples;
+
+        // Expected tuple size is the average tuple size taken from the table.
+        float tupleSize = tableStats.avgTupleSize;
+
+        // Disk IOs is the number of blocks in the table (this is a file scan).
+        long numBlockIOs = tableStats.numDataPages;
+
+        cost = new PlanCost(numTuples, tupleSize, cpuCost, numBlockIOs);
 
         // TODO:  We should also update the table statistics based on the
         //        predicate, but that's too complicated, so we'll leave them

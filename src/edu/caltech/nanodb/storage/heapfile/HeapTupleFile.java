@@ -4,9 +4,13 @@ package edu.caltech.nanodb.storage.heapfile;
 import java.io.EOFException;
 import java.io.IOException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import edu.caltech.nanodb.qeval.ColumnStats;
+import edu.caltech.nanodb.qeval.ColumnStatsCollector;
+import edu.caltech.nanodb.relations.ColumnInfo;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.qeval.TableStats;
@@ -468,8 +472,69 @@ public class HeapTupleFile implements TupleFile {
 
     @Override
     public void analyze() throws IOException {
-        // TODO!
-        throw new UnsupportedOperationException("Not yet implemented!");
+        // Initialize column statistics
+        List<ColumnInfo> columnInfos = schema.getColumnInfos();
+        int numCols = schema.numColumns();
+        ArrayList<ColumnStatsCollector> collectors =
+                new ArrayList<ColumnStatsCollector>();
+        for (ColumnInfo info : columnInfos) {
+            collectors.add(new ColumnStatsCollector(info.getType().getBaseType()));
+        }
+
+        // Initial table stats
+        int tupleCount = 0;
+        int tupleBytes = 0;
+        int dataPages = 0;
+
+        try {
+            // Scan through the data pages until we hit the end of the table
+            // file.  It may be that the first run of data pages is empty,
+            // so just keep looking until we hit the end of the file.
+
+            // Header page is page 0, so first data page is page 1.
+
+            for (int iPage = 1; /* nothing */ ; iPage++) {
+                // Look for data on this page...
+                DBPage dbPage = storageManager.loadDBPage(dbFile, iPage);
+                int numSlots = DataPage.getNumSlots(dbPage);
+                // Increment number of data pages
+                dataPages++;
+                
+                for (int iSlot = 0; iSlot < numSlots; iSlot++) {
+                    // Get the offset of the tuple in the page.  If it's 0 then
+                    // the slot is empty, and we skip to the next slot.
+                    int offset = DataPage.getSlotValue(dbPage, iSlot);
+                    if (offset == DataPage.EMPTY_SLOT)
+                        continue;
+                    // Build up the HeapFilePageTuple object to log stats
+                    PageTuple tuple = new HeapFilePageTuple(schema, dbPage, iSlot, offset);
+                    // Update table statistics
+                    tupleCount++;
+                    tupleBytes += tuple.getSize();
+                    // Update column statistics
+                    for (int i = 0; i < numCols; i++) {
+                        collectors.get(i).addValue(tuple.getColumnValue(i));
+                    }
+                }
+
+                // If we got here, the page has no tuples.  Unpin the page.
+                dbPage.unpin();
+            }
+        }
+        catch (EOFException e) {
+            // Done looking through all the pages
+            // Get average tuple size
+            float avgSize = ((float) tupleBytes) / tupleCount;
+            ArrayList<ColumnStats> colStats = new ArrayList<ColumnStats>();
+            // Get column info from collectors
+            for (ColumnStatsCollector collector : collectors) {
+                colStats.add(collector.getColumnStats());
+            }
+            // Generate table stats
+            stats = new TableStats(dataPages, tupleCount, avgSize, colStats);
+            heapFileManager.saveMetadata(this);
+        }
+
     }
 
     @Override
