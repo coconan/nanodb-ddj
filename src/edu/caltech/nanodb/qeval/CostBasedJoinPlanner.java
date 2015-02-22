@@ -2,23 +2,18 @@ package edu.caltech.nanodb.qeval;
 
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
+import edu.caltech.nanodb.commands.SelectValue;
+import edu.caltech.nanodb.expressions.*;
+import edu.caltech.nanodb.plans.*;
+import edu.caltech.nanodb.relations.ColumnInfo;
+import edu.caltech.nanodb.relations.JoinType;
+import edu.caltech.nanodb.relations.Schema;
 import org.apache.log4j.Logger;
 
 import edu.caltech.nanodb.commands.FromClause;
 import edu.caltech.nanodb.commands.SelectClause;
-import edu.caltech.nanodb.expressions.BooleanOperator;
-import edu.caltech.nanodb.expressions.Expression;
-import edu.caltech.nanodb.plans.FileScanNode;
-import edu.caltech.nanodb.plans.PlanNode;
-import edu.caltech.nanodb.plans.SelectNode;
 import edu.caltech.nanodb.relations.TableInfo;
 import edu.caltech.nanodb.storage.StorageManager;
 
@@ -133,35 +128,106 @@ public class CostBasedJoinPlanner implements Planner {
     public PlanNode makePlan(SelectClause selClause,
         List<SelectClause> enclosingSelects) throws IOException {
 
-        // We want to take a simple SELECT a, b, ... FROM A, B, ... WHERE ...
-        // and turn it into a tree of plan nodes.
-
-        FromClause fromClause = selClause.getFromClause();
-        if (fromClause == null) {
+        if (enclosingSelects != null && !enclosingSelects.isEmpty()) {
             throw new UnsupportedOperationException(
-                "NanoDB doesn't yet support SQL queries without a FROM clause!");
+                    "Not yet implemented:  enclosing queries!");
+        }
+        // Get each part of the query.
+        FromClause fromClause = selClause.getFromClause();
+        Expression wherePredicate = selClause.getWhereExpr();
+        Expression havingPredicate = selClause.getHavingExpr();
+        List<Expression> groupByValues = selClause.getGroupByExprs();
+        List<SelectValue> selectValues = selClause.getSelectValues();
+        List<OrderByExpression> orderByValues = selClause.getOrderByExprs();
+
+        // Convert the query into a plan tree using the join plan optimizer
+        // Pass in predicates in where and having clauses
+        HashSet<Expression> extras = new HashSet<Expression>();
+        PredicateUtils.collectConjuncts(wherePredicate, extras);
+        PredicateUtils.collectConjuncts(havingPredicate, extras);
+
+        JoinComponent result = makeJoinPlan(fromClause, extras);
+        PlanNode plan = result.joinPlan;
+        plan.prepare();
+
+        // Grouping and aggregation.
+        AggregateProcessor processor = new AggregateProcessor();
+        // Check the FROM clause to see if there are any aggregate functions,
+        // which is not valid SQL. To do this we must traverse the FromClause
+        // tree.
+        Queue<FromClause> nodesToVisit = new LinkedList<FromClause>();
+        if (fromClause != null) {
+            nodesToVisit.add(fromClause);
+        }
+        while (nodesToVisit.size() > 0) {
+            FromClause node = nodesToVisit.poll();
+            if (node.isJoinExpr()) {
+                // Add child nodes.
+                FromClause leftChild = node.getLeftChild();
+                FromClause rightChild = node.getRightChild();
+                assert leftChild != null && rightChild != null;
+                nodesToVisit.add(leftChild);
+                nodesToVisit.add(rightChild);
+
+                // If this node is a JOIN .. ON node, then scan it for
+                // aggregate functions.
+                if (node.getConditionType() == FromClause.JoinConditionType.JOIN_ON_EXPR) {
+                    scanForAggregates(node.getOnExpression(), processor);
+                    if (processor.getAggregates().size() > 0) {
+                        throw new IllegalArgumentException("Aggregate functions were found in a JOIN ON clause.");
+                    }
+                }
+            }
         }
 
-        // TODO:  Implement!
-        //
-        // These are the general steps to follow, although this must be
-        // modified to also support grouping and aggregates:
-        //
-        // 1)  Pull out the top-level conjuncts from the WHERE and HAVING
-        //     clauses on the query, since we will handle them in special ways
-        //     if we have outer joins.
-        //
-        // 2)  Create an optimal join plan from the top-level from-clause and
-        //     the top-level conjuncts.
-        //
-        // 3)  If there are any unused conjuncts, determine how to handle them.
-        //
-        // 4)  Create a project plan-node if necessary.
-        //
-        // 5)  Handle other situations such as ORDER BY, or LIMIT/OFFSET if
-        //     you have implemented this plan-node.
+        // Check the WHERE clause for aggregate functions.
+        // If there are aggregates found, the SQL is invalid.
+        scanForAggregates(wherePredicate, processor);
+        if (processor.getAggregates().size() > 0) {
+            throw new IllegalArgumentException("Aggregate functions were found in the WHERE clause.");
+        }
 
-        return null;
+        // Scan the SELECT and HAVING clauses. Replace any aggregate functions
+        // with ColumnValue expressions.
+        for (SelectValue sv : selectValues) {
+            if (!sv.isExpression()) {
+                continue;
+            }
+            Expression e = scanForAggregates(sv.getExpression(), processor);
+            sv.setExpression(e);
+        }
+        havingPredicate = scanForAggregates(havingPredicate, processor);
+
+        // Now make the grouping and aggregation node if either grouping or
+        // aggregation is necessary.
+        Map<String, FunctionCall> aggregates = processor.getAggregates();
+        if (aggregates.size() > 0 || groupByValues.size() > 0) {
+            plan = new HashedGroupAggregateNode(plan, groupByValues, aggregates);
+        }
+
+        // HAVING predicate
+        if (havingPredicate != null) {
+            plan = new SimpleFilterNode(plan, havingPredicate);
+        }
+
+        // SELECT values (generalized project)
+        if (!selClause.isTrivialProject()) {
+            plan = new ProjectNode(plan, selectValues);
+        }
+
+        // If there's an ORDER BY, add a sort node
+        if (!orderByValues.isEmpty()) {
+            plan = new SortNode(plan, orderByValues);
+        }
+
+        // If the limit and offset are nonzero, add a limit/offset node
+        if (selClause.getLimit() != 0 || selClause.getOffset() != 0) {
+            plan = new LimitOffsetNode(plan, selClause.getLimit(), selClause.getOffset());
+        }
+
+        // Prepare the plan and return it
+        plan.prepare();
+        return plan;
     }
 
 
@@ -232,7 +298,14 @@ public class CostBasedJoinPlanner implements Planner {
      * This helper method pulls the essential details for join optimization
      * out of a <tt>FROM</tt> clause.
      *
-     * TODO:  FILL IN DETAILS.
+     * If the given FROM clause is a leaf clause, it is added to the list of
+     * leaf clauses, otherwise its predicates are broken up into conjuncts and
+     * added to the set of conjuncts, and the function is called recursively on
+     * its children. A FROM clause is a leaf iff it is a base table, a
+     * derived table i.e. subquery, or an outer join.
+     *
+     * More intelligent planning and optimizing would allow us to also
+     * optimize outer joins, but this is not yet implemented.
      *
      * @param fromClause the from-clause to collect details from
      *
@@ -242,7 +315,27 @@ public class CostBasedJoinPlanner implements Planner {
      */
     private void collectDetails(FromClause fromClause,
         HashSet<Expression> conjuncts, ArrayList<FromClause> leafFromClauses) {
-        // TODO:  IMPLEMENT
+
+        // If the fromClause is a base table, a subquery, or an outer join, consider it a leaf
+        // and add it to the list of leaves
+        if (fromClause.isBaseTable() || fromClause.isDerivedTable() || (fromClause.isJoinExpr() && fromClause.isOuterJoin())) {
+            leafFromClauses.add(fromClause);
+            return;
+        }
+
+        // Otherwise, not a leaf, so add its conjuncts
+        PredicateUtils.collectConjuncts(fromClause.getOnExpression(), conjuncts);
+        PredicateUtils.collectConjuncts(fromClause.getPreparedJoinExpr(), conjuncts);
+
+        // And collect the details of the children if applicable
+        if (fromClause.getLeftChild() != null) {
+            collectDetails(fromClause.getLeftChild(), conjuncts, leafFromClauses);
+        }
+
+        if (fromClause.getRightChild() != null) {
+            collectDetails(fromClause.getRightChild(), conjuncts, leafFromClauses);
+        }
+        return;
     }
 
 
@@ -292,7 +385,14 @@ public class CostBasedJoinPlanner implements Planner {
 
     /**
      * Constructs a plan tree for evaluating the specified from-clause.
-     * TODO:  COMPLETE THE DOCUMENTATION
+     * Generates an optimal plan for the given leaf node, and a set of all
+     * conjuncts used in the query. If any conjuncts are actually applied,
+     * they are added to the leafConjuncts set. Base tables use a simple
+     * select, subqueries make a plan recursively, and outer joins optimize
+     * the two children before creating a joining node. Outer joins can also
+     * pass conjuncts along, but only when the result is equivalent. Finally,
+     * once the plan node is made, all the conjuncts that can be applied to
+     * its scheme are collected and added to the plan node.
      *
      * @param fromClause the select nodes that need to be joined.
      *
@@ -316,17 +416,125 @@ public class CostBasedJoinPlanner implements Planner {
         Collection<Expression> conjuncts, HashSet<Expression> leafConjuncts)
         throws IOException {
 
-        // TODO:  IMPLEMENT.
-        //        If you apply any conjuncts then make sure to add them to the
-        //        leafConjuncts collection.
-        //
-        //        Don't forget that all from-clauses can specify an alias.
-        //
-        //        Concentrate on properly handling cases other than outer
-        //        joins first, then focus on outer joins once you have the
-        //        typical cases supported.
+        // If no from clause exists, return null.
+        if (fromClause == null) {
+            return null;
+        }
 
-        return null;
+        PlanNode fromNode;
+        // Otherwise, switch based on from clause type
+        switch (fromClause.getClauseType()) {
+            // For base tables, file scan and rename if needed
+            case BASE_TABLE:
+                fromNode = makeSimpleSelect(fromClause.getTableName(),
+                        null, null);
+                if (fromClause.isRenamed()) {
+                    fromNode = new RenameNode(fromNode,
+                            fromClause.getResultName());
+                }
+                break;
+            case SELECT_SUBQUERY:
+                // For subqueries, recursively call makePlan and rename
+                fromNode = makePlan(fromClause.getSelectClause(), null);
+                fromNode.prepare();
+                if (fromClause.isRenamed()) {
+                    fromNode = new RenameNode(fromNode, fromClause.getResultName());
+                }
+                break;
+            case JOIN_EXPR:
+                if (!fromClause.isOuterJoin()) { // Sanity check, must be an outer join
+                    throw new IllegalArgumentException("Non Outer Join Leaf Node ????");
+                }
+
+                Collection<Expression> leftConjuncts = null;
+                Collection<Expression> rightConjuncts = null;
+
+                // Conjuncts can only be pushed into outer joins when the outer side is
+                // not opposite the child the conjunct applies to
+                if (!fromClause.hasOuterJoinOnLeft()) rightConjuncts = conjuncts;
+                if (!fromClause.hasOuterJoinOnRight()) leftConjuncts = conjuncts;
+
+                // For joins, evaluate left and right children, then generate the
+                // join node.
+                JoinComponent leftComponent = makeJoinPlan(fromClause.getLeftChild(), leftConjuncts);
+                JoinComponent rightComponent = makeJoinPlan(fromClause.getRightChild(), rightConjuncts);
+
+                // Add the conjuncts used, if any
+                leafConjuncts.addAll(leftComponent.conjunctsUsed);
+                leafConjuncts.addAll(rightComponent.conjunctsUsed);
+                PlanNode left = leftComponent.joinPlan;
+                PlanNode right = rightComponent.joinPlan;
+
+                FromClause.JoinConditionType condition = fromClause.getConditionType();
+                Expression predicate=  null;
+                boolean needProject = false;
+                List<SelectValue> projectValues = null;
+
+                // For ON clauses, predicate is the OnExpression
+                if (condition == FromClause.JoinConditionType.JOIN_ON_EXPR) {
+                    predicate = fromClause.getOnExpression();
+                }
+                // For other USING and NATURAL JOIN, predicate is
+                // PreparedJoinExpr
+                else if (condition == FromClause.JoinConditionType.JOIN_USING
+                        || condition == FromClause.JoinConditionType.NATURAL_JOIN) {
+                    // USING and NATURAL require a projected schema
+                    needProject = true;
+                    predicate = fromClause.getPreparedJoinExpr();
+                }
+
+                JoinType joinType = fromClause.getJoinType();
+                // Right outer joins can't be done with nested loop, so
+                // convert to project + left join
+                if (joinType == JoinType.RIGHT_OUTER) {
+                    // Calculate project values only if not USING or NATURAL
+                    if (!needProject) {
+                        needProject = true;
+                        // Get project values from the schema
+                        projectValues = new ArrayList<SelectValue>();
+                        Schema schema = fromClause.getPreparedSchema();
+                        for (ColumnInfo colInfo : schema) {
+                            SelectValue selVal = new SelectValue(
+                                    new ColumnValue(colInfo.getColumnName()), null);
+                            projectValues.add(selVal);
+                        }
+                    }
+                    // Switch right and left, then convert to left join
+                    PlanNode temp = left;
+                    left = right;
+                    right = temp;
+                    joinType = JoinType.LEFT_OUTER;
+                }
+
+                // Generate the join node
+                fromNode = new NestedLoopsJoinNode(left, right, joinType, predicate);
+                // Project if necessary
+                if (needProject) {
+                    if (projectValues == null) {
+                        projectValues = fromClause.getPreparedSelectValues();
+                    }
+                    fromNode = new ProjectNode(fromNode, projectValues);
+                }
+                break;
+
+            default:
+                throw new IllegalArgumentException("Illegal leaf node type " + fromClause.getClauseType().toString());
+        }
+
+        fromNode.prepare();
+
+        // Optimize by adding predicates as soon as possible.
+        HashSet<Expression> conjunctsToUse = new HashSet<Expression>();
+        PredicateUtils.findExprsUsingSchemas(conjuncts, false, conjunctsToUse, fromNode.getSchema());
+        if (!conjunctsToUse.isEmpty()) {
+            leafConjuncts.addAll(conjunctsToUse);
+            Expression predicate = PredicateUtils.makePredicate(conjunctsToUse);
+            PlanUtils.addPredicateToPlan(fromNode, predicate);
+            // Prepare the node again since it was changed
+            fromNode.prepare();
+        }
+
+        return fromNode;
     }
 
 
@@ -470,5 +678,20 @@ public class CostBasedJoinPlanner implements Planner {
         SelectNode selectNode = new FileScanNode(tableInfo, predicate);
         selectNode.prepare();
         return selectNode;
+    }
+
+    /**
+     * This helper is a wrapper for scanning expressions for aggregate functions.
+     * The result is stored with the AggregateProcessor object.
+     *
+     * Returns the result node.
+     */
+    private Expression scanForAggregates(Expression e, AggregateProcessor p) {
+        assert p != null;
+        // If the expression is null, don't do anything.
+        if (e == null) {
+            return null;
+        }
+        return e.traverse(p);
     }
 }
