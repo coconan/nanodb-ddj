@@ -144,11 +144,11 @@ public class CostBasedJoinPlanner implements Planner {
         // Pass in predicates in where and having clauses
         HashSet<Expression> extras = new HashSet<Expression>();
         PredicateUtils.collectConjuncts(wherePredicate, extras);
-        PredicateUtils.collectConjuncts(havingPredicate, extras);
-
-        JoinComponent result = makeJoinPlan(fromClause, extras);
-        PlanNode plan = result.joinPlan;
-        plan.prepare();
+        PlanNode plan = null;
+        if (fromClause != null) {
+            JoinComponent result = makeJoinPlan(fromClause, extras);
+            plan = result.joinPlan;
+        }
 
         // Grouping and aggregation.
         AggregateProcessor processor = new AggregateProcessor();
@@ -174,7 +174,8 @@ public class CostBasedJoinPlanner implements Planner {
                 if (node.getConditionType() == FromClause.JoinConditionType.JOIN_ON_EXPR) {
                     scanForAggregates(node.getOnExpression(), processor);
                     if (processor.getAggregates().size() > 0) {
-                        throw new IllegalArgumentException("Aggregate functions were found in a JOIN ON clause.");
+                        throw new IllegalArgumentException("Aggregate " +
+                                "functions were found in a JOIN ON clause.");
                     }
                 }
             }
@@ -184,7 +185,8 @@ public class CostBasedJoinPlanner implements Planner {
         // If there are aggregates found, the SQL is invalid.
         scanForAggregates(wherePredicate, processor);
         if (processor.getAggregates().size() > 0) {
-            throw new IllegalArgumentException("Aggregate functions were found in the WHERE clause.");
+            throw new IllegalArgumentException("Aggregate functions were " +
+                    "found in the WHERE clause.");
         }
 
         // Scan the SELECT and HAVING clauses. Replace any aggregate functions
@@ -224,9 +226,9 @@ public class CostBasedJoinPlanner implements Planner {
         if (selClause.getLimit() != 0 || selClause.getOffset() != 0) {
             plan = new LimitOffsetNode(plan, selClause.getLimit(), selClause.getOffset());
         }
-
         // Prepare the plan and return it
         plan.prepare();
+
         return plan;
     }
 
@@ -282,11 +284,11 @@ public class CostBasedJoinPlanner implements Planner {
         }
 
         // Build up the full query-plan using a dynamic programming approach.
-
         JoinComponent optimalJoin =
             generateOptimalJoin(leafComponents, roConjuncts);
 
         PlanNode plan = optimalJoin.joinPlan;
+
         logger.info("Optimal join plan generated:\n" +
             PlanNode.printNodeTreeToString(plan, true));
 
@@ -318,7 +320,8 @@ public class CostBasedJoinPlanner implements Planner {
 
         // If the fromClause is a base table, a subquery, or an outer join, consider it a leaf
         // and add it to the list of leaves
-        if (fromClause.isBaseTable() || fromClause.isDerivedTable() || (fromClause.isJoinExpr() && fromClause.isOuterJoin())) {
+        if (fromClause.isBaseTable() || fromClause.isDerivedTable() ||
+                (fromClause.isJoinExpr() && fromClause.isOuterJoin())) {
             leafFromClauses.add(fromClause);
             return;
         }
@@ -436,7 +439,6 @@ public class CostBasedJoinPlanner implements Planner {
             case SELECT_SUBQUERY:
                 // For subqueries, recursively call makePlan and rename
                 fromNode = makePlan(fromClause.getSelectClause(), null);
-                fromNode.prepare();
                 if (fromClause.isRenamed()) {
                     fromNode = new RenameNode(fromNode, fromClause.getResultName());
                 }
@@ -587,11 +589,64 @@ public class CostBasedJoinPlanner implements Planner {
             HashMap<HashSet<PlanNode>, JoinComponent> nextJoinPlans =
                 new HashMap<HashSet<PlanNode>, JoinComponent>();
 
-            // TODO:  IMPLEMENT THE CODE THAT GENERATES OPTIMAL PLANS THAT
-            //        JOIN N + 1 LEAVES
+            // Iterate through each plan, then each leaf component
+            for (Map.Entry<HashSet<PlanNode>, JoinComponent> entry :
+                    joinPlans.entrySet()) {
+                for (JoinComponent leaf : leafComponents) {
+                    // If the current plan already contains the leaf, skip
+                    // this iteration
+                    if (entry.getKey().contains(leaf.joinPlan)) {
+                        continue;
+                    }
 
-            // Now that we have generated all plans joining N leaves, time to
-            // create all plans joining N + 1 leaves.
+                    // Find unused conjuncts for the plan and the leaf
+                    HashSet<Expression> unusedConjuncts =
+                            new HashSet<Expression>(conjuncts);
+                    HashSet<Expression> subplanConjuncts =
+                            new HashSet<Expression>(leaf.conjunctsUsed);
+                    subplanConjuncts.addAll(entry.getValue().conjunctsUsed);
+                    unusedConjuncts.removeAll(subplanConjuncts);
+                    HashSet<Expression> joinConjuncts = new HashSet<Expression>();
+
+                    // Get schemas for new predicate
+                    Schema leftSchema = entry.getValue().joinPlan.getSchema();
+                    Schema rightSchema = leaf.joinPlan.getSchema();
+                    // Use all unused conjuncts to generate the predicate
+                    PredicateUtils.findExprsUsingSchemas(unusedConjuncts, true,
+                            joinConjuncts, leftSchema, rightSchema);
+                    Expression predicate = makePredicate(joinConjuncts);
+                    // Add left/right child conjuncts to the used conjuncts set
+                    joinConjuncts.addAll(leaf.conjunctsUsed);
+                    joinConjuncts.addAll(entry.getValue().conjunctsUsed);
+
+                    // Make join plan
+                    NestedLoopsJoinNode nextPlan = new NestedLoopsJoinNode(
+                            entry.getValue().joinPlan, leaf.joinPlan,
+                            JoinType.INNER, predicate);
+
+                    // Find cost for the plan
+                    nextPlan.prepare();
+                    PlanCost cost = nextPlan.getCost();
+                    // Generate join component for the new plan
+                    HashSet<PlanNode> leavesUsed =
+                            new HashSet<PlanNode>(leaf.leavesUsed);
+                    leavesUsed.addAll(entry.getKey());
+                    JoinComponent component =
+                            new JoinComponent(nextPlan, leavesUsed, joinConjuncts);
+
+                    // Save plan if no other plan has a lower cost or no plan
+                    // joining its leaf nodes exists yet.
+                    if (nextJoinPlans.containsKey(leavesUsed)) {
+                        float oldCost = nextJoinPlans.get(leavesUsed).
+                                joinPlan.getCost().cpuCost;
+                        if (cost.cpuCost < oldCost)
+                            nextJoinPlans.put(leavesUsed, component);
+                    }
+                    else {
+                        nextJoinPlans.put(leavesUsed, component);
+                    }
+                }
+            }
             joinPlans = nextJoinPlans;
         }
 
