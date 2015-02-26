@@ -848,9 +848,16 @@ public class FromClause {
                 ColumnInfo lhsColInfo = leftSchema.getColumnInfo(name);
                 ColumnInfo rhsColInfo = rightSchema.getColumnInfo(name);
 
-                result.addColumnInfo(new ColumnInfo(lhsColInfo.getName(),
-                        lhsColInfo.getType()));
-
+                // For right outer joins, we need to associate the rhs with the
+                // column. For everything else, the lhs can be used.
+                if (joinType == JoinType.RIGHT_OUTER) {
+                    result.addColumnInfo(new ColumnInfo(rhsColInfo.getName(),
+                            rhsColInfo.getTableName(), rhsColInfo.getType()));
+                }
+                else {
+                    result.addColumnInfo(new ColumnInfo(lhsColInfo.getName(),
+                            lhsColInfo.getTableName(), lhsColInfo.getType()));
+                }
                 // Add an equality test between the common columns to the join
                 // condition.
                 CompareOperator eq = new CompareOperator(CompareOperator.Type.EQUALS,

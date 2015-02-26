@@ -215,6 +215,11 @@ public class CostBasedJoinPlanner implements Planner {
         // SELECT values (generalized project)
         if (!selClause.isTrivialProject()) {
             plan = new ProjectNode(plan, selectValues);
+        } else if (fromClause != null) {
+            ArrayList<SelectValue> values = fromClause.getPreparedSelectValues();
+            if (values != null) {
+                plan = new ProjectNode(plan, values);
+            }
         }
 
         // If there's an ORDER BY, add a sort node
@@ -467,40 +472,24 @@ public class CostBasedJoinPlanner implements Planner {
                 PlanNode left = leftComponent.joinPlan;
                 PlanNode right = rightComponent.joinPlan;
 
-                FromClause.JoinConditionType condition = fromClause.getConditionType();
-                Expression predicate=  null;
+                Expression predicate=  fromClause.getPreparedJoinExpr();
                 boolean needProject = false;
                 List<SelectValue> projectValues = null;
-
-                // For ON clauses, predicate is the OnExpression
-                if (condition == FromClause.JoinConditionType.JOIN_ON_EXPR) {
-                    predicate = fromClause.getOnExpression();
-                }
-                // For other USING and NATURAL JOIN, predicate is
-                // PreparedJoinExpr
-                else if (condition == FromClause.JoinConditionType.JOIN_USING
-                        || condition == FromClause.JoinConditionType.NATURAL_JOIN) {
-                    // USING and NATURAL require a projected schema
-                    needProject = true;
-                    predicate = fromClause.getPreparedJoinExpr();
-                }
 
                 JoinType joinType = fromClause.getJoinType();
                 // Right outer joins can't be done with nested loop, so
                 // convert to project + left join
                 if (joinType == JoinType.RIGHT_OUTER) {
-                    // Calculate project values only if not USING or NATURAL
-                    if (!needProject) {
-                        needProject = true;
-                        // Get project values from the schema
-                        projectValues = new ArrayList<SelectValue>();
-                        Schema schema = fromClause.getPreparedSchema();
-                        for (ColumnInfo colInfo : schema) {
-                            SelectValue selVal = new SelectValue(
-                                    new ColumnValue(colInfo.getColumnName()), null);
-                            projectValues.add(selVal);
-                        }
+                    needProject = true;
+                    // Get project values from the schema
+                    projectValues = new ArrayList<SelectValue>();
+                    Schema schema = fromClause.getPreparedSchema();
+                    for (ColumnInfo colInfo : schema) {
+                        SelectValue selVal = new SelectValue(
+                                new ColumnValue(colInfo.getColumnName()), null);
+                        projectValues.add(selVal);
                     }
+
                     // Switch right and left, then convert to left join
                     PlanNode temp = left;
                     left = right;
@@ -512,9 +501,6 @@ public class CostBasedJoinPlanner implements Planner {
                 fromNode = new NestedLoopsJoinNode(left, right, joinType, predicate);
                 // Project if necessary
                 if (needProject) {
-                    if (projectValues == null) {
-                        projectValues = fromClause.getPreparedSelectValues();
-                    }
                     fromNode = new ProjectNode(fromNode, projectValues);
                 }
                 break;
