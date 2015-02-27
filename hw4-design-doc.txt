@@ -26,15 +26,26 @@ A3.  Specify any late tokens you are applying to this assignment, or
 A4.  Briefly describe what parts of the assignment each teammate focused on.
      Jerry Zhang - collect details, leaf plans
      Daniel Wang - optimal join plan, natural joins
-     Daniel Kong - gets a bye this week
+     Daniel Kong - has a bye this week
 
 B:  Generating Optimal Joins
 ----------------------------
 
 B1.  Briefly describe how you generate an "optimal" access to a base table.
 
+     On accessing a base table, we make a filescan node, then add a
+     predicate to the filescan using as many conjuncts as possible. This
+     causes the filescan to return as few tuples as possible, which is
+     likely to produce the optimal plan.
+
 B2.  Briefly describe how you decide when it is acceptable to push
      conjuncts down through an outer join.
+
+     In an outer join, conjuncts can be pushed down only when the outer
+     side of the join corresponds to the child that the conjunct applies
+     to. Thus, we check which conjuncts the left/right child supports,
+     then choose which set of conjuncts to push down based on whether
+     we have a left or right join.
 
 B3.  The planner in this assignment is still somewhat limited; for example,
      we can't push conjuncts down into subqueries.  Using the stores schema,
@@ -70,7 +81,13 @@ B5.  In what situations can you end up with unused conjuncts after
      the stores schema.  Then, describe a strategy for where/how these
      left-over conjuncts should be applied in the plan.
 
-     SELECT * FROM stores, cities, states WHERE store_id < states.state_id;
+     SELECT COUNT(store_id), city_name FROM stores NATURAL JOIN cities
+     GROUP BY city_name HAVING COUNT(store_id) < 5;
+
+     Here, conjuncts in the HAVING clause are unused after planning the
+     join. We use the strategy of applying all conjuncts in HAVING at
+     the top level of the query, since aggregates often cause us to be
+     unable to use these conjuncts until then.
      
 C:  Costing SQL Queries
 -----------------------
