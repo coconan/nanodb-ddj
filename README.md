@@ -23,3 +23,13 @@ origin	https://github.com/dkong1796/nanodb-ddj.git (push)
 ```
 
 This way, running the usual commands (like `git push origin master`) updates the Github repository, and when we want to submit, one of us should run `git push cms master`.
+
+**Submitting an Assignment**
+
+1. Merge the branch into master and update your local branch.
+2. Tag the merge commit with `hwX`.
+3. Update the designdoc with the commit hash and tag name.
+4. `git push cms master`
+5. `git push cms --tags`
+6. `git push origin --tags`
+7. Upload the designdoc to Moodle.
