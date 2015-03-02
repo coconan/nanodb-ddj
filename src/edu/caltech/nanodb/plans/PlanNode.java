@@ -489,7 +489,7 @@ public abstract class PlanNode implements Cloneable {
      */
     @Override
     protected PlanNode clone() throws CloneNotSupportedException {
-        PlanNode node = (PlanNode)super.clone();
+        PlanNode node = (PlanNode) super.clone();
         
         // NodeType is immutable.
         node.nodeType = this.nodeType;
