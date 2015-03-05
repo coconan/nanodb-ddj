@@ -315,6 +315,8 @@ public class HeapTupleFile implements TupleFile {
                 " is larger than page size " + dbFile.getPageSize() + ".");
         }
 
+        // checks if the previous page needs to be logged
+        boolean prevPageModified = false;
         // Search for a page to put the tuple in. If we hit the end of the
         // list of partially filled pages (pageNo will be 0), then create a
         // new page.
@@ -360,6 +362,7 @@ public class HeapTupleFile implements TupleFile {
                 firstNonFullPage = pageNo;
             } else {
                 DataPage.setNextNonFullPage(prevPage, pageNo);
+                prevPageModified = true;
             }
         }
 
@@ -389,19 +392,25 @@ public class HeapTupleFile implements TupleFile {
                 firstNonFullPage = nextNonFullPage;
             } else {
                 DataPage.setNextNonFullPage(prevPage, nextNonFullPage);
+                prevPageModified = true;
             }
         }
 
         if (prevPage != null) {
             prevPage.unpin();
         }
+        if (prevPageModified) {
+            storageManager.logDBPageWrite(prevPage);
+        }
 
         // Update values that may have changed.
         DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
         HeaderPage.setFirstNonFullPage(headerPage, firstNonFullPage);
         headerPage.unpin();
+        storageManager.logDBPageWrite(headerPage);
 
         DataPage.sanityCheck(dbPage);
+        storageManager.logDBPageWrite(dbPage);
 
         // Done with the page, so we can unpin it.
         dbPage.unpin();
@@ -438,6 +447,7 @@ public class HeapTupleFile implements TupleFile {
 
         DBPage dbPage = ptup.getDBPage();
         DataPage.sanityCheck(dbPage);
+        storageManager.logDBPageWrite(dbPage);
     }
 
 
@@ -465,9 +475,11 @@ public class HeapTupleFile implements TupleFile {
             HeaderPage.setFirstNonFullPage(headerPage, dbPage.getPageNo());
             DataPage.setNextNonFullPage(dbPage, nextNonFullPage);
             headerPage.unpin();
+            storageManager.logDBPageWrite(headerPage);
         }
 
         DataPage.sanityCheck(dbPage);
+        storageManager.logDBPageWrite(dbPage);
     }
 
     @Override

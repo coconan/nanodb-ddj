@@ -450,14 +450,53 @@ public class TransactionManager implements BufferManagerObserver {
      *         going to be broken.
      */
     public void forceWAL(LogSequenceNumber lsn) throws IOException {
-        // TODO:  IMPLEMENT
-        //
-        // Note that the "next LSN" value must be determined from both the
-        // current LSN *and* its record size; otherwise we lose the last log
-        // record in the WAL file.  You can use this static method:
-        //
-        // int lastPosition = lsn.getFileOffset() + lsn.getRecordSize();
-        // WALManager.computeNextLSN(lsn.getLogFileNo(), lastPosition);
+        // If the lsn on disk is greater than or equal to the argument, this is
+        // a no op
+        if (txnStateNextLSN.compareTo(lsn) >= 0) {
+            return;
+        }
+        // Get the buffer manager
+        BufferManager bufferManager = storageManager.getBufferManager();
+        // Get the first WAL file
+        DBFile wal = bufferManager.getFile(WALManager.getWALFileName(
+                txnStateNextLSN.getLogFileNo()));
+
+        // We start at this page
+        int start = txnStateNextLSN.getFileOffset() / wal.getPageSize();
+        // Only do work if the WAL is loaded
+        if (wal != null) {
+            // If this is the only file, write from start page to end page,
+            // determined by the argument size/offset
+            if (txnStateNextLSN.compareTo(lsn) == 0 && wal != null) {
+                bufferManager.writeDBFile(wal, start, lsn.getFileOffset() +
+                        lsn.getRecordSize() / wal.getPageSize(), true);
+            } else {
+                // Otherwise, write the file from the start page, syncing it.
+                bufferManager.writeDBFile(wal, start, Integer.MAX_VALUE, true);
+            }
+        }
+        // Iterate through more log files, if they exist
+        for (int i = txnStateNextLSN.getLogFileNo() + 1; i <=
+                lsn.getLogFileNo(); i++) {
+            wal = bufferManager.getFile(WALManager.getWALFileName(i));
+            // No work needed if the WAL isn't loaded
+            if (wal == null) {
+                continue;
+            }
+            // Otherwise, if we're on the last iteration, write up to the end
+            // page, determined by lsn
+            if (i == lsn.getLogFileNo()) {
+                bufferManager.writeDBFile(wal, 0, lsn.getFileOffset() +
+                        lsn.getRecordSize() / wal.getPageSize(), true);
+            } else {
+                // If we're not at the end, write the whole file.
+                bufferManager.writeDBFile(wal, true);
+            }
+        }
+        // Update transaction state
+        int lastPosition = lsn.getFileOffset() + lsn.getRecordSize();
+        txnStateNextLSN = WALManager.computeNextLSN(lsn.getLogFileNo(), lastPosition);
+        storeTxnStateToFile();
     }
 
 
