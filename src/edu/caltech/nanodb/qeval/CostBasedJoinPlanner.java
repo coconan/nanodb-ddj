@@ -600,7 +600,7 @@ public class CostBasedJoinPlanner implements Planner {
                     // Use all unused conjuncts to generate the predicate
                     PredicateUtils.findExprsUsingSchemas(unusedConjuncts, true,
                             joinConjuncts, leftSchema, rightSchema);
-                    Expression predicate = makePredicate(joinConjuncts);
+                    Expression predicate = PredicateUtils.makePredicate(joinConjuncts);
                     // Add left/right child conjuncts to the used conjuncts set
                     joinConjuncts.addAll(leaf.conjunctsUsed);
                     joinConjuncts.addAll(entry.getValue().conjunctsUsed);
