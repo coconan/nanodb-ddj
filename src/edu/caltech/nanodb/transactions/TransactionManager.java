@@ -409,29 +409,27 @@ public class TransactionManager implements BufferManagerObserver {
      */
     @Override
     public void beforeWriteDirtyPages(List<DBPage> pages) throws IOException {
-        // TODO:  IMPLEMENT
-        //
-        // This implementation must enforce the write-ahead logging rule (aka
-        // the WAL rule) by ensuring that the write-ahead log reflects all
-        // changes to all of the specified pages, on disk, before any of these
-        // pages may be written to disk.
-        //
-        // Recall that DBPages have a pageLSN field that is set to the LSN
-        // of the last WAL record describing a change to the page.  This value
-        // is not always set; it will be null if the page is part of a data
-        // file whose type is not logged.  (It may also be null if there is a
-        // bug in the write-ahead logging code.  It would be wise to report a
-        // warning, or throw an exception, if a page doesn't have a LSN when
-        // it ought to.)
-        //
-        // Some file types are not recorded to the write-ahead log; these
-        // pages should be ignored when determining how to update the WAL.
-        // You can find a page's file-type by doing something like this:
-        // dbPage.getDBFile().getType().  If it is WRITE_AHEAD_LOG_FILE or
-        // TXNSTATE_FILE then you should ignore the page.
-        //
-        // Finally, you can use the forceWAL(LogSequenceNumber) function to
-        // force the WAL to be written out to the specified LSN.
+        LogSequenceNumber maxLSN = null;
+        // Iterate through pages, looking for the highest LSN
+        for (DBPage p : pages) {
+            // Ignore WAL and TXNSTATE files
+            DBFileType type = p.getDBFile().getType();
+            if (type == DBFileType.WRITE_AHEAD_LOG_FILE ||
+                    type == DBFileType.TXNSTATE_FILE) {
+                continue;
+            }
+            // Get the page LSN
+            LogSequenceNumber lsn = p.getPageLSN();
+            // If the lsn is null, something bad probably happened
+            if (lsn == null) {
+                logger.warn("null LSN in non WAL/TXNSTATE page: " + p);
+            }
+            // Update max LSN if needed
+            if (maxLSN == null || maxLSN.compareTo(lsn) < 0) {
+                maxLSN = lsn;
+            }
+        }
+        forceWAL(maxLSN);
     }
 
 
@@ -450,6 +448,20 @@ public class TransactionManager implements BufferManagerObserver {
      *         going to be broken.
      */
     public void forceWAL(LogSequenceNumber lsn) throws IOException {
+        /* This is atomic and durable because we write to the txnState file at
+         * the end of our operation. The txnState essentially acts as a log
+         * for the WAL. It only gets updated after the entire WAL up to the
+         * nextLSN is written to disk. If we are interrupted in the process,
+         * we know by our nextLSN in the txnState how much of the WAL is valid
+         * on disk.
+         * We get Atomicity since the txnState file is small, so writing to it
+         * can be guaranteed as atomic by the OS. Then, writes to the WAL are
+         * either totally performed (if we successfully write the txnState) or
+         * we can see that they have not been done, based on nextLSN in the
+         * txnState.
+         * We get durability by only reporting success after we've written out
+         * all of the WAL and the txnState, ensuring that everything is on disk
+         */
         // If the lsn on disk is greater than or equal to the argument, this is
         // a no op
         if (txnStateNextLSN.compareTo(lsn) >= 0) {
