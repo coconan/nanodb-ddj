@@ -429,7 +429,10 @@ public class TransactionManager implements BufferManagerObserver {
                 maxLSN = lsn;
             }
         }
-        forceWAL(maxLSN);
+        // If we found a valid LSN in the pages, force WAL to that LSN
+        if (maxLSN != null) {
+            forceWAL(maxLSN);
+        }
     }
 
 

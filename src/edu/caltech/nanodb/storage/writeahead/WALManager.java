@@ -1061,19 +1061,42 @@ public class WALManager {
                 "Undoing WAL record at %s.  Type = %s, TxnID = %d",
                 lsn, type, transactionID));
 
-            // TODO:  IMPLEMENT THE REST
-            //
-            //        Use logging statements liberally to help verify and
-            //        debug your work.
-            //
-            //        If you encounter invalid WAL contents, throw a
-            //        WALFileException to indicate the problem immediately.
-            //
-            // TODO:  SET lsn TO PREVIOUS LSN TO WALK BACKWARD THROUGH WAL.
+            boolean done = false;
+            switch (type) {
+                case UPDATE_PAGE:
+                    // Get all the info from the update record
+                    int logfilenum = walReader.readUnsignedShort();
+                    int offset = walReader.readInt();
+                    String filename = walReader.readVarString255();
+                    int pagenum = walReader.readUnsignedShort();
+                    int numseg = walReader.readUnsignedShort();
+                    DBPage page = storageManager.loadDBPage(
+                            storageManager.openDBFile(filename), pagenum);
+                    logger.debug("Undoing an update in filename " + filename);
 
-            // TODO:  This break is just here so the code will compile; when
-            //        you provide your own implementation, get rid of it!
-            break;
+                    // Undo changes and get the redo data, then write the redo
+                    // data to log as a redo only record
+                    byte[] redo = applyUndoAndGenRedoOnlyData(walReader, page, numseg);
+                    writeRedoOnlyUpdatePageRecord(page, numseg, redo);
+
+                    // Go to the previous LSN as given in the record
+                    lsn = computeNextLSN(logfilenum, offset);
+                    break;
+                case START_TXN:
+                    // Reached the end of the transaction
+                    done = true;
+                    break;
+                case ABORT_TXN:
+                case UPDATE_PAGE_REDO_ONLY:
+                case COMMIT_TXN:
+                default:
+                    // We should never encounter any of these types of records
+                    // if we are rolling back
+                    throw new WALFileException("Moved to an invalid WAL record of type "
+                        + type.toString());
+            }
+
+            if (done) break;
         }
 
         // All done rolling back the transaction!  Record that it was aborted
