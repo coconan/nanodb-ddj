@@ -249,28 +249,52 @@ public class WALManager {
                 "Redo:  examining WAL record at %s.  Type = %s, TxnID = %d",
                 currLSN, type, transactionID));
 
-            // TODO:  IMPLEMENT THE REST
-            //
-            //        Use logging statements liberally to help verify and
-            //        debug your work.
-            //
-            //        If you encounter invalid WAL contents, throw a
-            //        WALFileException to indicate the problem immediately.
-            //
-            //        You can use Java enums in a switch statement, like this:
-            //
-            //            switch (type) {
-            //            case START_TXN:
-            //                ...
-            //
-            //            case COMMIT_TXN:
-            //                ...
-            //
-            //            default:
-            //                throw new WALFileException(
-            //                    "Encountered unrecognized WAL record type " + type +
-            //                    " at LSN " + currLSN + " during redo processing!");
-            //            }
+            // What we need to do with this record depends on its type.
+            switch (type) {
+                case START_TXN:
+                    // Record a new transaction.
+                    recoveryInfo.updateInfo(transactionID, currLSN);
+                    break;
+                case UPDATE_PAGE:
+                case UPDATE_PAGE_REDO_ONLY:
+                    // Read in parameters and move the walReader to the
+                    // required position.
+                    walReader.readUnsignedShort();
+                    walReader.readInt();
+
+                    String filename = walReader.readVarString255();
+                    int pageNumber = walReader.readUnsignedShort();
+                    int numSegments = walReader.readUnsignedShort();
+                    DBPage dbPage = storageManager.loadDBPage(
+                            storageManager.openDBFile(filename), pageNumber);
+                    // Perform the update.
+                    logger.debug("Redoing update in file " + filename +
+                            " on page " + pageNumber);
+                    applyRedo(type, walReader, dbPage, numSegments);
+                    // Move to the end of the record.
+                    walReader.readInt();
+                    break;
+                case COMMIT_TXN:
+                case ABORT_TXN:
+                    // We're done with this transaction.
+                    recoveryInfo.recordTxnCompleted(transactionID);
+                    // Move to end of record.
+                    walReader.readUnsignedShort();
+                    walReader.readInt();
+                    break;
+                default:
+                    throw new WALFileException(
+                            "Encountered unrecognized WAL record type " + type +
+                            " at LSN " + currLSN + " during redo processing!");
+            }
+            // We should now be at the last byte of this record.
+            // Sanity check.
+            WALRecordType checkType = WALRecordType.valueOf(walReader.readByte());
+            if (checkType != type) {
+                logger.debug("Failed sanity check on record type");
+                throw new WALFileException("Sanity check failed; expected " +
+                        type + " but got " + checkType + " instead.");
+            }
 
             oldLSN = currLSN;
             currLSN = computeNextLSN(currLSN.getLogFileNo(), walReader.getPosition());
