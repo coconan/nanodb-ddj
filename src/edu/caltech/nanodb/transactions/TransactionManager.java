@@ -409,29 +409,30 @@ public class TransactionManager implements BufferManagerObserver {
      */
     @Override
     public void beforeWriteDirtyPages(List<DBPage> pages) throws IOException {
-        // TODO:  IMPLEMENT
-        //
-        // This implementation must enforce the write-ahead logging rule (aka
-        // the WAL rule) by ensuring that the write-ahead log reflects all
-        // changes to all of the specified pages, on disk, before any of these
-        // pages may be written to disk.
-        //
-        // Recall that DBPages have a pageLSN field that is set to the LSN
-        // of the last WAL record describing a change to the page.  This value
-        // is not always set; it will be null if the page is part of a data
-        // file whose type is not logged.  (It may also be null if there is a
-        // bug in the write-ahead logging code.  It would be wise to report a
-        // warning, or throw an exception, if a page doesn't have a LSN when
-        // it ought to.)
-        //
-        // Some file types are not recorded to the write-ahead log; these
-        // pages should be ignored when determining how to update the WAL.
-        // You can find a page's file-type by doing something like this:
-        // dbPage.getDBFile().getType().  If it is WRITE_AHEAD_LOG_FILE or
-        // TXNSTATE_FILE then you should ignore the page.
-        //
-        // Finally, you can use the forceWAL(LogSequenceNumber) function to
-        // force the WAL to be written out to the specified LSN.
+        LogSequenceNumber maxLSN = null;
+        // Iterate through pages, looking for the highest LSN
+        for (DBPage p : pages) {
+            // Ignore WAL and TXNSTATE files
+            DBFileType type = p.getDBFile().getType();
+            if (type == DBFileType.WRITE_AHEAD_LOG_FILE ||
+                    type == DBFileType.TXNSTATE_FILE) {
+                continue;
+            }
+            // Get the page LSN
+            LogSequenceNumber lsn = p.getPageLSN();
+            // If the lsn is null, something bad probably happened
+            if (lsn == null) {
+                logger.warn("null LSN in non WAL/TXNSTATE page: " + p);
+            }
+            // Update max LSN if needed
+            if (maxLSN == null || maxLSN.compareTo(lsn) < 0) {
+                maxLSN = lsn;
+            }
+        }
+        // If we found a valid LSN in the pages, force WAL to that LSN
+        if (maxLSN != null) {
+            forceWAL(maxLSN);
+        }
     }
 
 
@@ -450,14 +451,67 @@ public class TransactionManager implements BufferManagerObserver {
      *         going to be broken.
      */
     public void forceWAL(LogSequenceNumber lsn) throws IOException {
-        // TODO:  IMPLEMENT
-        //
-        // Note that the "next LSN" value must be determined from both the
-        // current LSN *and* its record size; otherwise we lose the last log
-        // record in the WAL file.  You can use this static method:
-        //
-        // int lastPosition = lsn.getFileOffset() + lsn.getRecordSize();
-        // WALManager.computeNextLSN(lsn.getLogFileNo(), lastPosition);
+        /* This is atomic and durable because we write to the txnState file at
+         * the end of our operation. The txnState essentially acts as a log
+         * for the WAL. It only gets updated after the entire WAL up to the
+         * nextLSN is written to disk. If we are interrupted in the process,
+         * we know by our nextLSN in the txnState how much of the WAL is valid
+         * on disk.
+         * We get Atomicity since the txnState file is small, so writing to it
+         * can be guaranteed as atomic by the OS. Then, writes to the WAL are
+         * either totally performed (if we successfully write the txnState) or
+         * we can see that they have not been done, based on nextLSN in the
+         * txnState.
+         * We get durability by only reporting success after we've written out
+         * all of the WAL and the txnState, ensuring that everything is on disk
+         */
+        // If the lsn on disk is greater than or equal to the argument, this is
+        // a no op
+        if (txnStateNextLSN.compareTo(lsn) >= 0) {
+            return;
+        }
+        // Get the buffer manager
+        BufferManager bufferManager = storageManager.getBufferManager();
+        // Get the first WAL file
+        DBFile wal = bufferManager.getFile(WALManager.getWALFileName(
+                txnStateNextLSN.getLogFileNo()));
+
+        // We start at this page
+        int start = txnStateNextLSN.getFileOffset() / wal.getPageSize();
+        // Only do work if the WAL is loaded
+        if (wal != null) {
+            // If this is the only file, write from start page to end page,
+            // determined by the argument size/offset
+            if (txnStateNextLSN.compareTo(lsn) == 0 && wal != null) {
+                bufferManager.writeDBFile(wal, start, lsn.getFileOffset() +
+                        lsn.getRecordSize() / wal.getPageSize(), true);
+            } else {
+                // Otherwise, write the file from the start page, syncing it.
+                bufferManager.writeDBFile(wal, start, Integer.MAX_VALUE, true);
+            }
+        }
+        // Iterate through more log files, if they exist
+        for (int i = txnStateNextLSN.getLogFileNo() + 1; i <=
+                lsn.getLogFileNo(); i++) {
+            wal = bufferManager.getFile(WALManager.getWALFileName(i));
+            // No work needed if the WAL isn't loaded
+            if (wal == null) {
+                continue;
+            }
+            // Otherwise, if we're on the last iteration, write up to the end
+            // page, determined by lsn
+            if (i == lsn.getLogFileNo()) {
+                bufferManager.writeDBFile(wal, 0, lsn.getFileOffset() +
+                        lsn.getRecordSize() / wal.getPageSize(), true);
+            } else {
+                // If we're not at the end, write the whole file.
+                bufferManager.writeDBFile(wal, true);
+            }
+        }
+        // Update transaction state
+        int lastPosition = lsn.getFileOffset() + lsn.getRecordSize();
+        txnStateNextLSN = WALManager.computeNextLSN(lsn.getLogFileNo(), lastPosition);
+        storeTxnStateToFile();
     }
 
 
