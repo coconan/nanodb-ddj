@@ -321,6 +321,7 @@ public class HeapTupleFile implements TupleFile {
         // list of partially filled pages (pageNo will be 0), then create a
         // new page.
         int pageNo = firstNonFullPage;
+        boolean headerPageModified = false;
         DBPage dbPage = null;
         // Keep track of the previous page so we can maintain the list.
         DBPage prevPage = null;
@@ -360,6 +361,7 @@ public class HeapTupleFile implements TupleFile {
             // Add new page to the list of non-full pages.
             if (prevPage == null) {
                 firstNonFullPage = pageNo;
+                headerPageModified = true;
             } else {
                 DataPage.setNextNonFullPage(prevPage, pageNo);
                 prevPageModified = true;
@@ -390,6 +392,7 @@ public class HeapTupleFile implements TupleFile {
             int nextNonFullPage = DataPage.getNextNonFullPage(dbPage);
             if (prevPage == null) {
                 firstNonFullPage = nextNonFullPage;
+                headerPageModified = true;
             } else {
                 DataPage.setNextNonFullPage(prevPage, nextNonFullPage);
                 prevPageModified = true;
@@ -404,10 +407,12 @@ public class HeapTupleFile implements TupleFile {
         }
 
         // Update values that may have changed.
-        DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
-        HeaderPage.setFirstNonFullPage(headerPage, firstNonFullPage);
-        headerPage.unpin();
-        storageManager.logDBPageWrite(headerPage);
+        if (headerPageModified) {
+            DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
+            HeaderPage.setFirstNonFullPage(headerPage, firstNonFullPage);
+            headerPage.unpin();
+            storageManager.logDBPageWrite(headerPage);
+        }
 
         DataPage.sanityCheck(dbPage);
         storageManager.logDBPageWrite(dbPage);

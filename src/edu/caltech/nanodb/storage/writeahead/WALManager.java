@@ -448,11 +448,12 @@ public class WALManager {
                     int numSegments = walReader.readUnsignedShort();
                     DBPage dbPage = storageManager.loadDBPage(
                             storageManager.openDBFile(filename), pageNumber);
-                    byte[] changes = applyUndoAndGenRedoOnlyData(walReader, dbPage, numSegments);
-                    // Write a redo-only update record, passing ALL transaction details.
+                    logger.debug("Undoing update for file " + filename + ", page " + pageNumber + ". numSegments = " + numSegments);
+                    byte[] redo = applyUndoAndGenRedoOnlyData(walReader, dbPage, numSegments);
+                    // Write a redo-only update record, passing all transaction details.
                     lastLSN = writeRedoOnlyUpdatePageRecord(
                             transactionID, recoveryInfo.getLastLSN(transactionID),
-                            dbPage, numSegments, changes);
+                            dbPage, numSegments, redo);
                     // Record that this is now the last LSN seen for this transaction.
                     recoveryInfo.updateInfo(transactionID, lastLSN);
                     break;
