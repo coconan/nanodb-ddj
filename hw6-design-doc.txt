@@ -18,7 +18,7 @@ A2.  Specify the tag name and commit-hash of the Git version you are
      of your repository tags with this command:  git show-ref --tags)
 
      Tag name:     hw6
-     Commit hash:  <hash>
+     Commit hash:  a9615cd35e2f96112115a54e260cf1b3c8835324
 
 A3.  Specify any late tokens you are applying to this assignment, or
      "none" if no late tokens.
