@@ -478,18 +478,16 @@ public class TransactionManager implements BufferManagerObserver {
 
         // We start at this page
         int start = txnStateNextLSN.getFileOffset() / wal.getPageSize();
-        // Only do work if the WAL is loaded
-        if (wal != null) {
-            // If this is the only file, write from start page to end page,
-            // determined by the argument size/offset
-            if (txnStateNextLSN.compareTo(lsn) == 0 && wal != null) {
-                bufferManager.writeDBFile(wal, start, lsn.getFileOffset() +
-                        lsn.getRecordSize() / wal.getPageSize(), true);
-            } else {
-                // Otherwise, write the file from the start page, syncing it.
-                bufferManager.writeDBFile(wal, start, Integer.MAX_VALUE, true);
-            }
+        // If this is the only file, write from start page to end page,
+        // determined by the argument size/offset
+        if (txnStateNextLSN.getLogFileNo() == lsn.getLogFileNo()) {
+            bufferManager.writeDBFile(wal, start, lsn.getFileOffset() +
+                    lsn.getRecordSize() / wal.getPageSize(), true);
+        } else {
+            // Otherwise, write the file from the start page, syncing it.
+            bufferManager.writeDBFile(wal, start, Integer.MAX_VALUE, true);
         }
+
         // Iterate through more log files, if they exist
         for (int i = txnStateNextLSN.getLogFileNo() + 1; i <=
                 lsn.getLogFileNo(); i++) {
