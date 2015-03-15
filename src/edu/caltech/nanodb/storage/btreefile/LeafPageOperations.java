@@ -338,7 +338,6 @@ public class LeafPageOperations {
 
         BTreeFilePageTuple result;
 
-        System.out.println(newTuple);
         // Figure out where the new tuple-value goes in the leaf page.
 
         int newTupleSize = newTuple.getStorageSize();
@@ -658,7 +657,6 @@ public class LeafPageOperations {
     private BTreeFilePageTuple splitLeafAndAddTuple(LeafPage leaf,
         List<Integer> pagePath, TupleLiteral tuple) throws IOException {
 
-        System.out.println(tuple);
         int pathSize = pagePath.size();
         if (pagePath.get(pathSize - 1) != leaf.getPageNo()) {
             throw new IllegalArgumentException(
