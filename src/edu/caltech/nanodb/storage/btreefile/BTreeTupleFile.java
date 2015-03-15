@@ -453,23 +453,32 @@ public class BTreeTupleFile implements SequentialTupleFile {
 
             // Create an inner page from the dbPage
             InnerPage innerPage = new InnerPage(dbPage, schema);
-            int ptrIdx = 0;
+            int ptrIdx;
+            int pageNo = -1;
             // Find the first key greater than the search key
-            for (int k = 0; k < innerPage.getNumKeys(); k++) {
-                if (TupleComparator.comparePartialTuples(searchKey,
-                        innerPage.getKey(k)) > 0) {
-                    // We want the pointer right before that key
-                    ptrIdx = k;
+            for (ptrIdx = 0; ptrIdx < innerPage.getNumKeys(); ptrIdx++) {
+                int compareVal = TupleComparator.comparePartialTuples(searchKey,
+                        innerPage.getKey(ptrIdx));
+                // If we find a lesser key, set pageNo to the ptrIdx
+                if (compareVal < 0) {
+                    pageNo = innerPage.getPointer(ptrIdx);
+                    break;
+                } else if (compareVal == 0) {
+                    // If we find something equal, we want the next page
+                    pageNo = innerPage.getPointer(ptrIdx + 1);
                     break;
                 }
             }
+            // If pageNo hasn't been updated, we want the last page
+            if (pageNo == -1) {
+                pageNo = innerPage.getPointer(innerPage.getNumPointers() - 1);
+            }
             // Get the next page
-            int pageNo = innerPage.getPointer(ptrIdx);
             dbPage = storageManager.loadDBPage(dbFile, pageNo);
-            pageType = dbPage.readUnsignedByte(0);
+            pageType = dbPage.readByte(0);
 
             // Add page to pagePath if needed
-            if (pagePath != null)
+            if (pagePath != null && pageNo != rootPageNo)
                 pagePath.add(pageNo);
         }
         return new LeafPage(dbPage, schema);
