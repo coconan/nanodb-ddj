@@ -675,16 +675,37 @@ public class LeafPageOperations {
         DBPage newDBPage = fileOps.getNewDataPage();
         LeafPage newLeaf = LeafPage.init(newDBPage, tupleFile.getSchema());
 
-        /* TODO:  IMPLEMENT THE REST OF THIS METHOD.
-         *
-         * The LeafPage class provides some helpful operations for moving leaf-
-         * entries to a left or right sibling.
-         *
-         * The parent page must also be updated.  If the leaf node doesn't have
-         * a parent, the tree's depth will increase by one level.
-         */
-        logger.error("NOT YET IMPLEMENTED:  splitLeafAndAddKey()");
-        return null;
+        // Link new leaf and old leaf (new leaf on the right)
+        newLeaf.setNextPageNo(leaf.getNextPageNo());
+        leaf.setNextPageNo(newLeaf.getPageNo());
+
+        // Move half the tuples to the new leaf
+        int numTuples = leaf.getNumTuples();
+        leaf.moveTuplesRight(newLeaf, numTuples / 2);
+
+        // Add the new tuple to the correct leaf
+        BTreeFilePageTuple result = addTupleToLeafPair(leaf, newLeaf, tuple);
+        // Save the first tuple of the newLeaf as the new key
+        BTreeFilePageTuple newKey = newLeaf.getTuple(0);
+
+        // If this is the root page, pagePath has size 1
+        if (pagePath.size() == 1) {
+            // Make a new root page
+            DBPage rootPage = fileOps.getNewDataPage();
+            DBFile dbFile = tupleFile.getDBFile();
+            DBPage headerPage = storageManager.loadDBPage(dbFile, 0);
+            InnerPage newRoot = InnerPage.init(rootPage, tupleFile.getSchema(),
+                    leaf.getPageNo(), newKey, newLeaf.getPageNo());
+            // Update the header page
+            HeaderPage.setRootPageNo(headerPage, rootPage.getPageNo());
+        } else {
+            // Otherwise, the leaves have a parent, so we add a key to it
+            InnerPage parent = innerPageOps.loadPage(pagePath.get(pathSize - 2));
+            pagePath.remove(pathSize - 1);
+            innerPageOps.addTuple(parent, pagePath, leaf.getPageNo(), newKey,
+                    newLeaf.getPageNo());
+        }
+        return result;
     }
 
 

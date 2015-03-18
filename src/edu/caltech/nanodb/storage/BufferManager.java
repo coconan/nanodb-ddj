@@ -524,7 +524,7 @@ public class BufferManager {
         for (SessionPinCount spc : spcs) {
             // It would be an overstatement to say this is an error, since we
             // can recover from it.
-            logger.warn(String.format("Session %d pinned DBPage %d %d times" +
+            logger.debug(String.format("Session %d pinned DBPage %d %d times" +
                 " without a corresponding unpin call", sessionID,
                 spc.dbPage.getPageNo(), spc.pinCount));
 

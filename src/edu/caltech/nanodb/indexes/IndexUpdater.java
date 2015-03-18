@@ -2,6 +2,8 @@ package edu.caltech.nanodb.indexes;
 
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Set;
 
 import org.apache.log4j.Logger;
 
@@ -123,27 +125,66 @@ public class IndexUpdater implements RowEventListener {
 
         // Iterate over the indexes in the table.
         TableSchema schema = tblFileInfo.getSchema();
-        for (ColumnRefs indexDef : schema.getIndexes().values()) {
-            try {
-                IndexInfo indexInfo = indexManager.openIndex(tblFileInfo,
-                    indexDef.getIndexName());
+        Set<Integer> notNull = schema.getNotNull();
 
-                // TODO:  Implement!
-                //
-                // If the index is a unique index, then verify that there
-                // isn't already a tuple in the index with the same values
-                // (excluding the tuple-pointer column, of course).
-                //
-                // Finally, add a new tuple to the index, including the
-                // tuple-pointer to the tuple in the table.
-            }
-            catch (IOException e) {
-                throw new EventDispatchException("Couldn't update index " +
-                    indexDef.getIndexName() + " for table " +
-                    tblFileInfo.getTableName(), e);
+        for (int i = 0; i < schema.numColumns(); i++) {
+            // Check NOT_NULL constraints and raise exception if they are violated
+            if (notNull.contains(i)) {
+                if (ptup.getColumnValue(i) == null) {
+                    try {
+                        tblFileInfo.getTupleFile().deleteTuple(ptup);
+                    } catch (IOException e) {
+                        throw new IllegalStateException
+                                ("Tried to delete a tuple that violated a constraint but failed: "
+                                + schema.getColumnInfo(i).getName());
+                    }
+                    throw new IllegalArgumentException
+                            ("Cannot insert NULL values into columns with NOT_NULL constraint: "
+                            + schema.getColumnInfo(i).getName());
+                }
             }
         }
-    }
+        try {
+
+            for (ColumnRefs indexDef : schema.getIndexes().values()) {
+                IndexInfo indexInfo = indexManager.openIndex(tblFileInfo,
+                        indexDef.getIndexName());
+                // Check if there are unique constraints on the columns of the index
+                if (schema.hasKeyOnColumns(indexDef)) {
+                    Tuple tofind = IndexUtils.makeSearchKeyValue(indexDef, ptup, false);
+                    // If there is already a tuple with these values in the index
+                    if (IndexUtils.findTupleInIndex(tofind, indexInfo.getTupleFile()) != null) {
+
+                        // Since the tuple was already inserted, remove it and throw an exception
+                        try {
+                            tblFileInfo.getTupleFile().deleteTuple(ptup);
+                        } catch (IOException e) {
+                            throw new IllegalStateException
+                                    ("Tried to delete a tuple that violated a constraint but failed: "
+                                            + schema.getColumnInfo(indexDef.getCol(0)).getName());
+                        }
+                        throw new IllegalArgumentException
+                                ("Cannot insert duplicate values into columns with PRIMARY or UNIQUE constraints: "
+                                        + schema.getColumnInfo(indexDef.getCol(0)).getName());
+                    }
+                }
+            }
+
+            for (ColumnRefs indexDef : schema.getIndexes().values()) {
+                IndexInfo indexInfo = indexManager.openIndex(tblFileInfo,
+                        indexDef.getIndexName());
+
+                // Insert the new tuple into the index
+                Tuple toInsert = IndexUtils.makeSearchKeyValue(indexDef, ptup, true);
+                indexInfo.getTupleFile().addTuple(toInsert);
+            }
+
+        }
+        catch (IOException e) {
+            throw new EventDispatchException("Couldn't update indexes table " +
+                    tblFileInfo.getTableName(), e);
+        }
+}
 
 
     /**
@@ -167,13 +208,14 @@ public class IndexUpdater implements RowEventListener {
                 IndexInfo indexInfo = indexManager.openIndex(tblFileInfo,
                     indexDef.getIndexName());
 
-                // TODO:  Implement!
-                //
-                // Find and remove the entry in this index, corresponding to
-                // the passed-in tuple.
-                //
-                // If the tuple doesn't appear in this index, throw an
-                // IllegalStateException to indicate that the index is bad.
+                // Create a copy of the tuple to be deleted
+                Tuple toDelete = IndexUtils.makeSearchKeyValue(indexDef, ptup, true);
+
+                if (IndexUtils.findTupleInIndex(toDelete, indexInfo.getTupleFile()) == null) {
+                    throw new IllegalStateException("Tried to delete tuple from index but it does not exist?");
+                }
+
+                indexInfo.getTupleFile().deleteTuple(toDelete);
             }
             catch (IOException e) {
                 throw new EventDispatchException("Couldn't update index " +

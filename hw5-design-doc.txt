@@ -1,0 +1,184 @@
+CS122 Assignment 5 - B+ Tree Indexes - Design Document
+======================================================
+
+A:  Logistics
+-------------
+
+A1.  List your team name and the people who worked on this assignment.
+
+    nanodb-ddj
+
+    Daniel Kong
+    Daniel Wang
+    Jerry Zhang
+
+A2.  Specify the tag name and commit-hash of the Git version you are
+     submitting for your assignment.  (You can list the commit hashes
+     of your repository tags with this command:  git show-ref --tags)
+
+     Tag name:     <tag>
+     Commit hash:  <hash>
+
+A3.  Specify any late tokens you are applying to this assignment, or
+     "none" if no late tokens.
+
+A4.  Briefly describe what parts of the assignment each teammate focused on.
+
+    Daniel Wang: part 1
+    Jerry Zhang: part 2
+    Daniel Kong: part 3
+
+B:  Analysis of Implementation
+------------------------------
+
+B1.  What is the total size of the index's search-key for the primary-key
+     index, in bytes?  Break down this size into its individual components;
+     be as detailed as possible.  (You don't need to go lower than the
+     byte-level in your answer, but you should show what each byte is a
+     part of.)
+
+    The full search key is 10 bytes:
+    4 bytes for t.id (id is an integer)
+    6 bytes for the file pointer:
+      4 bytes for the page number
+      2 bytes for the offset within the page
+
+    This was determined using the documentation for FilePointer objects, which
+    states that the page number is stored as a signed 32-bit integer and the
+    page offset is a 16-bit unsigned short. However, looking at the
+    implementation of DBPage.readObject, it appears that a FilePointer object
+    is stored as two unsigned shorts, so I'm not sure what's going on here.
+    We'll go with 10 bytes for the full search key tuple for the calculations
+    below here.
+
+
+B2.  What is the maximum number of search-keys that can be stored in leaf
+     nodes of NanoDB's B+ tree implementation?  You should assume the
+     default page-size of 8192 bytes.
+
+    A leaf page can store up to 818 tuples. The header of a leaf page
+    has 5 bytes reserved for various things:
+
+    1 byte to hold the page type
+    2 bytes that point to the next leaf page
+    2 bytes that hold the number of tuples
+
+    So the actual data starts at an offset of 5, leaving 8192 - 5 = 8187 bytes
+    usable for data. Each tuple is 10 bytes (see question above), so a leaf page
+    can hold at most 8187 / 10 = 818 tuples.
+
+B3.  What is the maximum number of keys that can be stored in inner nodes
+     of this particular implementation?  (Recall that every key must have
+     a page-pointer on either side of the key.)
+
+    Like the leaf page, the inner pages also have a 5 byte offset before
+    the data starts. That leaves 8192 - 5 = 8187 usable bytes for data.
+
+    Each search key has a page pointer on either side (a page pointer is an
+    unsigned short). So if there are N search keys, there are N + 1 pointers,
+    giving a total of (10 + 2) * N + 2 bytes.
+
+    That means that there can be at most (8187 - 2) / 12 = 682 keys stored
+    in an inner page.
+
+B4.  In this implementation, leaf nodes do not reference the previous
+     leaf, only the next leaf.  When splitting a leaf into two leaves,
+     what is the maximum number of leaf nodes that must be read or written,
+     in order to properly manage the next-leaf pointers?
+
+     If leaves also contained a previous-leaf pointer, what would the
+     answer be instead?
+
+     Make sure to explain your answers.
+
+    In our current implementation, splitting a leaf node requires updating the
+    current leaf node, so it points to the new leaf, and updating the new leaf
+    so it points to the original value of the "next" leaf. This requires
+    reading/modifying two leafs, so two data pages need to be accessed.
+
+    If leaves also had a previous leaf pointer, we would need three data page
+    accesses instead of two, as the current leaf must be updated to point to
+    the new leaf, the new leaf must be updated to point back at the current
+    leaf and also forward at the next leaf, and the next leaf would need to be
+    updated to point back at the new leaf.
+
+B5.  In this implementation, nodes do not store a page-pointer to their
+     parent node.  This makes the update process somewhat complicated, as
+     we must save the sequence of page-numbers we traverse as we navigate
+     from root to leaf.  If a node must be split, or if entries are to be
+     relocated from a node to its siblings, the node’s parent-node must
+     be retrieved, and the parent’s contents must be scanned to determine
+     the node’s sibling(s).
+
+     Consider an alternate B+ tree implementation in which every node
+     stores a page-pointer to the node’s parent.  In the case of splitting
+     an inner node, what performance-related differences are there between
+     this alternate representation and the given implementation, where
+     nodes do not record their parents?  Which one would you recommend?
+     Justify your answer.
+
+    The primary difference is that in the case where child nodes must point to
+    their parents, we require many additional updates when a parent node is
+    split. When we split an inner node, all of the child nodes whose pointers
+    were moved to the new inner node must also be accessed and updated to point
+    to the new parent node. In the absolute worst case, this happens
+    recursively if parent nodes at several levels of the tree must all be
+    split. While this happens infrequently, it is an extremely costly
+    operation. This really doesn't really provide enough of a benefit to
+    justify maintaining pointers to parent nodes, so the current implementation
+    seems much better.
+
+B6.  It should be obvious how indexes can be used to enforce primary keys,
+     but what role might they play with foreign keys?  For example, given
+     this schema:
+
+     CREATE TABLE t1 (
+         id INTEGER PRIMARY KEY
+     );
+
+     CREATE TABLE t2 (
+         id INTEGER REFERENCES t1;
+     );
+
+     Why might we want to build an index on t2.id?
+
+    Buiding an index on t2.id makes enforcing foreign key constraints much
+    faster. When a row is updated/deleted in t1, having an index on t2.id
+    allows us to check if updating/deleting that row will violate a foreign key
+    constraint much more quickly than doing a file scan through t2.
+
+E:  Extra Credit [OPTIONAL]
+---------------------------
+
+If you implemented any extra-credit tasks for this assignment, describe
+them here.  The description should be like this, with stuff in "<>" replaced.
+(The value i starts at 1 and increments...)
+
+E<i>:  <one-line description>
+
+     <brief summary of what you did, including the specific classes that
+     we should look at for your implementation>
+
+     <brief summary of test-cases that demonstrate/exercise your extra work>
+
+F:  Feedback [OPTIONAL]
+-----------------------
+
+These questions are optional, and they obviously won't affect your grade
+in any way (including if you hate everything about the assignment and
+databases in general, or Donnie and the TAs in particular).
+
+NOTE:  If you wish to give anonymous feedback, a similar survey will be
+       made available on the Moodle.
+
+F1.  How many hours total did your team spend on this assignment?
+     (That is, the sum of each teammate's time spent on the assignment.)
+
+F2.  What parts of the assignment were most time-consuming?
+
+F3.  Which parts of the assignment did you particularly enjoy?
+
+F4.  Which parts did you particularly dislike?
+
+F5.  Do you have any suggestions for how future versions of the
+     assignment can be improved?

@@ -722,23 +722,43 @@ public class InnerPage implements DataPage {
             }
         }
 
-        /* TODO:  IMPLEMENT THE REST OF THIS METHOD.
-         *
-         * You can use PageTuple.storeTuple() to write a key into a DBPage.
-         *
-         * The DBPage.write() method is useful for copying a large chunk of
-         * data from one DBPage to another.
-         *
-         * Your implementation also needs to properly handle the incoming
-         * parent-key, and produce a new parent-key as well.
-         */
-        logger.error("NOT YET IMPLEMENTED:  movePointersLeft()");
+        // This is the end of the data we should move
+        int lastOffset = getKey(count - 1).getOffset();
+        int len = lastOffset - OFFSET_FIRST_POINTER;
+
+        // Get the new parent key
+        BTreeFilePageTuple newKey = getKey(count - 1);
+        TupleLiteral ret = new TupleLiteral(newKey);
+
+        // Make space for pointers
+        DBPage leftPage = leftSibling.getDBPage();
+
+        // Move parent key if it exists
+        if (parentKey != null) {
+            PageTuple.storeTuple(leftPage, leftSibling.endOffset,
+                    leftSibling.schema, parentKey);
+        }
+        // Write the pointer data to the left page
+        leftPage.write(leftSibling.endOffset + parentKeyLen,
+                dbPage.getPageData(), OFFSET_FIRST_POINTER, len);
+
+        // Update the pointer-count
+        leftPage.writeShort(OFFSET_NUM_POINTERS,
+                leftSibling.numPointers + count);
+
+        // Move the data
+        int newStart = getKey(count - 1).getEndOffset();
+        dbPage.moveDataRange(newStart, OFFSET_FIRST_POINTER,
+                endOffset - newStart);
+
+        // Remove that range of tuple-data from this page.
+        dbPage.writeShort(OFFSET_NUM_POINTERS, numPointers - count);
 
         // Update the cached info for both non-leaf pages.
         loadPageContents();
         leftSibling.loadPageContents();
 
-        return null;
+        return ret;
     }
 
 
@@ -905,7 +925,6 @@ public class InnerPage implements DataPage {
      */
     public TupleLiteral movePointersRight(InnerPage rightSibling, int count,
                                           Tuple parentKey) {
-
         if (count < 0 || count > numPointers) {
             throw new IllegalArgumentException("count must be in range [0, " +
                 numPointers + "), got " + count);
@@ -937,17 +956,29 @@ public class InnerPage implements DataPage {
             }
         }
 
-        /* TODO:  IMPLEMENT THE REST OF THIS METHOD.
-         *
-         * You can use PageTuple.storeTuple() to write a key into a DBPage.
-         *
-         * The DBPage.write() method is useful for copying a large chunk of
-         * data from one DBPage to another.
-         *
-         * Your implementation also needs to properly handle the incoming
-         * parent-key, and produce a new parent-key as well.
-         */
-        logger.error("NOT YET IMPLEMENTED:  movePointersRight()");
+        // Get new parent key
+        BTreeFilePageTuple newKey = getKey(numPointers - count - 1);
+        TupleLiteral ret = new TupleLiteral(newKey);
+
+        // Make space for pointers
+        DBPage rightPage = rightSibling.getDBPage();
+        rightPage.moveDataRange(OFFSET_FIRST_POINTER, OFFSET_FIRST_POINTER +
+                len + parentKeyLen, rightSibling.getSpaceUsedByEntries());
+        // Move parent key if it exists
+        if (parentKey != null) {
+            PageTuple.storeTuple(rightPage, OFFSET_FIRST_POINTER + len, schema,
+                    parentKey);
+        }
+        // Write the pointer data to the right page
+        rightPage.write(OFFSET_FIRST_POINTER,
+                dbPage.getPageData(), startOffset, len);
+
+        // Update the pointer-count
+        rightSibling.dbPage.writeShort(OFFSET_NUM_POINTERS,
+                rightSibling.numPointers + count);
+
+        // Remove that range of tuple-data from this page.
+        dbPage.writeShort(OFFSET_NUM_POINTERS, numPointers - count);
 
         // Update the cached info for both non-leaf pages.
         loadPageContents();
@@ -962,7 +993,7 @@ public class InnerPage implements DataPage {
                 rightSibling.toFormattedString());
         }
 
-        return null;
+        return ret;
     }
 
 

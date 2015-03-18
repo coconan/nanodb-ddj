@@ -445,20 +445,43 @@ public class BTreeTupleFile implements SequentialTupleFile {
         if (pagePath != null)
             pagePath.add(rootPageNo);
 
-        /* TODO:  IMPLEMENT THE REST OF THIS METHOD.
-         *
-         * Don't forget to update the page-path as you navigate the index
-         * structure, if it is provided by the caller.
-         *
-         * Use the TupleComparator.comparePartialTuples() method for comparing
-         * the index's keys with the passed-in search key.
-         *
-         * It's always a good idea to code defensively:  if you see an invalid
-         * page-type, flag it with an IOException, as done earlier.
-         */
-        logger.error("NOT YET IMPLEMENTED:  navigateToLeafPage()");
+        // Iterate until we find a leaf page
+        while(pageType != BTREE_LEAF_PAGE) {
+            // We should never see non-inner pages
+            if (pageType != BTREE_INNER_PAGE)
+                throw new IOException("Invalid page type encountered:  " + pageType);
 
-        return null;
+            // Create an inner page from the dbPage
+            InnerPage innerPage = new InnerPage(dbPage, schema);
+            int ptrIdx;
+            int pageNo = -1;
+            // Find the first key greater than the search key
+            for (ptrIdx = 0; ptrIdx < innerPage.getNumKeys(); ptrIdx++) {
+                int compareVal = TupleComparator.comparePartialTuples(searchKey,
+                        innerPage.getKey(ptrIdx));
+                // If we find a lesser key, set pageNo to the ptrIdx
+                if (compareVal < 0) {
+                    pageNo = innerPage.getPointer(ptrIdx);
+                    break;
+                } else if (compareVal == 0) {
+                    // If we find something equal, we want the next page
+                    pageNo = innerPage.getPointer(ptrIdx + 1);
+                    break;
+                }
+            }
+            // If pageNo hasn't been updated, we want the last page
+            if (pageNo == -1) {
+                pageNo = innerPage.getPointer(innerPage.getNumPointers() - 1);
+            }
+            // Get the next page
+            dbPage = storageManager.loadDBPage(dbFile, pageNo);
+            pageType = dbPage.readByte(0);
+
+            // Add page to pagePath if needed
+            if (pagePath != null && pageNo != rootPageNo)
+                pagePath.add(pageNo);
+        }
+        return new LeafPage(dbPage, schema);
     }
 
 
