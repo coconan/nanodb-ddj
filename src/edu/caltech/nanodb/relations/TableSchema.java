@@ -138,6 +138,9 @@ public class TableSchema extends Schema {
         if (ck.getIndexName() == null)
             throw new IllegalArgumentException("ck must specify an index name");
 
+        if (primaryKey != null && ck.hasSameColumns(primaryKey))
+            throw new IllegalArgumentException("There is already a primary key constraint on columns " + ck.toString());
+
         if (candidateKeys == null)
             candidateKeys = new ArrayList<KeyColumnRefs>();
 
